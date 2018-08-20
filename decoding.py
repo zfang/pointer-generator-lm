@@ -10,14 +10,11 @@ from os.path import join
 import numpy as np
 import torch
 from cytoolz import curry
-from cytoolz import identity
 
 from data.batcher import convert2id, pad_batch_tensorize
 from data.data import CnnDmDataset
 from model.copy_summ import CopySumm
-from model.extract import ExtractSumm, PtrExtractSumm
-from model.rl import ActorCritic
-from utils import PAD, UNK, START, END
+from utils import PAD, UNK, START, END, get_elmo_lm
 
 
 class DecodeDataset(CnnDmDataset):
@@ -56,10 +53,22 @@ class Abstractor(object):
     def __init__(self, abs_dir, max_len=30, cuda=True):
         abs_meta = json.load(open(join(abs_dir, 'meta.json')))
         assert abs_meta['net'] == 'base_abstractor'
-        abs_args = abs_meta['net_args']
+        abs_args = dict(abs_meta['net_args'])
         abs_ckpt = load_best_ckpt(abs_dir)
         word2id = pkl.load(open(join(abs_dir, 'vocab.pkl'), 'rb'))
+        language_model = None
+        language_model_arg = abs_args.get('language_model', None)
+        if language_model_arg is not None and language_model_arg['type'] is not None:
+            if language_model_arg['type'] == 'elmo':
+                language_model = get_elmo_lm(vocab_to_cache=word2id, args=language_model_arg)
+                del abs_args['language_model']
+            else:
+                raise NotImplementedError(language_model_arg)
+
         abstractor = CopySumm(**abs_args)
+        if language_model is not None:
+            abstractor.set_language_model(language_model)
+
         abstractor.load_state_dict(abs_ckpt)
         self._device = torch.device('cuda' if cuda else 'cpu')
         self._net = abstractor.to(self._device)
@@ -142,36 +151,6 @@ def _process_beam(id2word, beam, art_sent):
     return list(map(process_hyp, beam))
 
 
-class Extractor(object):
-    def __init__(self, ext_dir, max_ext=5, cuda=True):
-        ext_meta = json.load(open(join(ext_dir, 'meta.json')))
-        if ext_meta['net'] == 'ml_ff_extractor':
-            ext_cls = ExtractSumm
-        elif ext_meta['net'] == 'ml_rnn_extractor':
-            ext_cls = PtrExtractSumm
-        else:
-            raise ValueError()
-        ext_ckpt = load_best_ckpt(ext_dir)
-        ext_args = ext_meta['net_args']
-        extractor = ext_cls(**ext_args)
-        extractor.load_state_dict(ext_ckpt)
-        word2id = pkl.load(open(join(ext_dir, 'vocab.pkl'), 'rb'))
-        self._device = torch.device('cuda' if cuda else 'cpu')
-        self._net = extractor.to(self._device)
-        self._word2id = word2id
-        self._id2word = {i: w for w, i in word2id.items()}
-        self._max_ext = max_ext
-
-    def __call__(self, raw_article_sents):
-        self._net.eval()
-        n_art = len(raw_article_sents)
-        articles = convert2id(UNK, self._word2id, raw_article_sents)
-        article = pad_batch_tensorize(articles, PAD, cuda=False
-                                      ).to(self._device)
-        indices = self._net.extract([article], k=min(n_art, self._max_ext))
-        return indices
-
-
 class ArticleBatcher(object):
     def __init__(self, word2id, cuda=True):
         self._device = torch.device('cuda' if cuda else 'cpu')
@@ -183,59 +162,3 @@ class ArticleBatcher(object):
         article = pad_batch_tensorize(articles, PAD, cuda=False
                                       ).to(self._device)
         return article
-
-
-class RLExtractor(object):
-    def __init__(self, ext_dir, cuda=True):
-        ext_meta = json.load(open(join(ext_dir, 'meta.json')))
-        assert ext_meta['net'] == 'rnn-ext_abs_rl'
-        ext_args = ext_meta['net_args']['extractor']['net_args']
-        word2id = pkl.load(open(join(ext_dir, 'agent_vocab.pkl'), 'rb'))
-        extractor = PtrExtractSumm(**ext_args)
-        agent = ActorCritic(extractor._sent_enc,
-                            extractor._art_enc,
-                            extractor._extractor,
-                            ArticleBatcher(word2id, cuda))
-        ext_ckpt = load_best_ckpt(ext_dir, reverse=True)
-        agent.load_state_dict(ext_ckpt)
-        self._device = torch.device('cuda' if cuda else 'cpu')
-        self._net = agent.to(self._device)
-        self._word2id = word2id
-        self._id2word = {i: w for w, i in word2id.items()}
-
-    def __call__(self, raw_article_sents):
-        self._net.eval()
-        indices = self._net(raw_article_sents)
-        return indices
-
-    @property
-    def net(self):
-        return self._net
-
-    @property
-    def word2id(self):
-        return self._word2id
-
-
-def load_models(model_dir,
-                beam_size,
-                max_len=30,
-                cuda=torch.cuda.is_available()):
-    with open(os.path.join(model_dir, 'meta.json')) as f:
-        meta = json.loads(f.read())
-    if meta['net_args']['abstractor'] is None:
-        # NOTE: if no abstractor is provided then
-        #       the whole model would be extractive summarization
-        assert beam_size == 1
-        abstractor = identity
-    else:
-        if beam_size == 1:
-            abstractor = Abstractor(os.path.join(model_dir, 'abstractor'),
-                                    max_len, cuda)
-        else:
-            abstractor = BeamAbstractor(os.path.join(model_dir, 'abstractor'),
-                                        max_len, cuda)
-
-    extractor = RLExtractor(model_dir, cuda=cuda)
-
-    return extractor, abstractor

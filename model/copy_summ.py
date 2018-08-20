@@ -3,10 +3,10 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn import init
 
-from . import beam_search as bs
-from .attention import step_attention
-from .summ import Seq2SeqSumm, AttentionalLSTMDecoder
-from .util import len_mask, get_device
+from model import beam_search as bs
+from model.attention import step_attention
+from model.summ import Seq2SeqSumm, AttentionalLSTMDecoder
+from model.util import len_mask, get_device
 
 INIT = 1e-2
 
@@ -35,34 +35,48 @@ class _CopyLinear(nn.Module):
 
 
 class CopySumm(Seq2SeqSumm):
-    def __init__(self, vocab_size, emb_dim,
-                 n_hidden, bidirectional, n_layer, dropout=0.0, transformer_lm=None):
+    def __init__(self,
+                 vocab_size,
+                 emb_dim,
+                 n_hidden,
+                 bidirectional,
+                 n_layer,
+                 dropout=0.0):
         super().__init__(vocab_size,
                          emb_dim,
                          n_hidden,
                          bidirectional,
                          n_layer,
-                         dropout,
-                         transformer_lm=transformer_lm)
+                         dropout)
+        self._n_hidden = n_hidden
         self._copy = _CopyLinear(n_hidden, n_hidden, 2 * emb_dim)
         self._decoder = CopyLSTMDecoder(
             self._copy, self._embedding, self._dec_lstm,
             self._attn_wq, self._projection
         )
 
-        self._transformer_lm = transformer_lm
-
     def forward(self, article, art_lens, abstract, extend_art, extend_vsize):
         attention, init_dec_states = self.encode(article, art_lens)
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
+
+        lm_activations, lm_mask, lm_attention = None, None, None
+        if self._language_model is not None:
+            lm_activations, lm_mask = self._language_model(article)
+            lm_attention = torch.matmul(lm_activations, self._attn_lm)
+
+        attention_args = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
+
         logit = self._decoder(
-            (attention, mask, extend_art, extend_vsize),
+            attention_args,
             init_dec_states, abstract
         )
-        return logit
 
-    def batch_decode(self, article, art_lens, extend_art, extend_vsize,
-                     go, eos, unk, max_len):
+        if lm_activations is not None:
+            return logit, (article, lm_activations)
+        else:
+            return logit, None
+
+    def batch_decode(self, article, art_lens, extend_art, extend_vsize, go, eos, unk, max_len):
         """ greedy decode support batching"""
         batch_size = len(art_lens)
         vsize = self._embedding.num_embeddings
@@ -177,6 +191,12 @@ class CopySumm(Seq2SeqSumm):
                     outputs[i] = (f + b)[:beam_size]
         return outputs
 
+    def set_language_model(self, language_model):
+        self._language_model = language_model
+        self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), self._n_hidden))
+        init.xavier_normal_(self._attn_lm)
+        self._decoder.init_lm_attention(self._n_hidden)
+
 
 class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def __init__(self, copy, *args, **kwargs):
@@ -191,10 +211,10 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         )
         states = self._lstm(lstm_in, prev_states)
         lstm_out = states[0][-1]
-        query = torch.mm(lstm_out, self._attn_w)
-        attention, attn_mask, extend_src, extend_vsize = attention
-        context, score = step_attention(
-            query, attention, attention, attn_mask)
+
+        extend_src, extend_vsize, context, score = \
+            self.compute_attention(lstm_out=lstm_out, attention=attention)
+
         dec_out = self._projection(torch.cat([lstm_out, context], dim=1))
 
         # extend generation prob to extended vocabulary
@@ -229,10 +249,9 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         lstm_out = states[0][-1]
 
         # attention is beamable
-        query = torch.matmul(lstm_out, self._attn_w)
-        attention, attn_mask, extend_src, extend_vsize = attention
-        context, score = step_attention(
-            query, attention, attention, attn_mask)
+        extend_src, extend_vsize, context, score = \
+            self.compute_attention(lstm_out=lstm_out, attention=attention)
+
         dec_out = self._projection(torch.cat([lstm_out, context], dim=-1))
 
         # copy mechanism is not beamable
@@ -273,3 +292,25 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def _compute_copy_activation(self, context, state, input_, score):
         copy = self._copy(context, state, input_) * score
         return copy
+
+    def init_lm_attention(self, n_hidden):
+        self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+        self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+        init.xavier_normal_(self._attn_lm)
+        init.xavier_normal_(self._attn_final)
+
+    def compute_attention(self, lstm_out, attention):
+        query = torch.mm(lstm_out, self._attn_w)
+        attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
+        context, score, raw_score = step_attention(
+            query, attention, attention, attn_mask, return_raw_score=True)
+
+        if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm, self._attn_final)):
+            query_lm = torch.mm(lstm_out, self._attn_wq_lm)
+            context_lm, score_lm, raw_score_lm = step_attention(
+                query_lm, lm_attention, lm_attention, lm_mask, return_raw_score=True)
+            concatenated_context = torch.cat((context, context_lm), dim=-1)
+            context = torch.matmul(concatenated_context, self._attn_final)
+            score = F.softmax(raw_score + raw_score_lm, dim=-1)
+
+        return extend_src, extend_vsize, context, score

@@ -4,3 +4,6 @@ tensorboardX
 cytoolz
 pyrouge
 tqdm
+spacy
+ftfy
+allennlp

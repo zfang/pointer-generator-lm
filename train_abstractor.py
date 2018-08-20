@@ -23,7 +23,7 @@ from model.copy_summ import CopySumm
 from model.util import sequence_loss
 from training import BasicPipeline, BasicTrainer
 from training import get_basic_grad_fn, basic_validate
-from utils import PAD, UNK, START, END
+from utils import PAD, UNK, START, END, get_elmo_lm
 from utils import make_vocab, make_embedding
 
 # NOTE: bucket size too large may sacrifice randomness,
@@ -52,7 +52,17 @@ class MatchDataset(CnnDmDataset):
         return matched_arts, abs_sents[:len(extracts)]
 
 
-def configure_training(opt, lr, clip_grad, lr_decay, batch_size):
+class ConcatenatedDataset(CnnDmDataset):
+    def __init__(self, split):
+        super().__init__(split, DATA_DIR)
+
+    def __getitem__(self, i):
+        js_data = super().__getitem__(i)
+        art_sents, abs_sents = js_data['article'], js_data['abstract']
+        return [' '.join(art_sents)], [' '.join(abs_sents)]
+
+
+def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     """ supports Adam optimizer only"""
     assert opt in ['adam']
     opt_kwargs = {'lr': lr}
@@ -68,12 +78,22 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size):
         F.nll_loss(logit, target, reduce=False)
 
     def criterion(logits, targets):
-        return sequence_loss(logits, targets, nll, pad_idx=PAD)
+        logits, lm_args = logits
+        abs_loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
+
+        if lm_coef > 0 and lm_args is not None:
+            article, lm_activations = lm_args
+            lm_loss = sequence_loss(logits, article, nll, pad_idx=PAD)
+            loss = abs_loss.mean() + lm_coef * lm_loss.mean()
+        else:
+            loss = abs_loss.mean()
+
+        return loss
 
     return criterion, train_params
 
 
-def build_batchers(word2id, cuda, debug):
+def build_batchers(word2id, cuda, debug, dataset):
     prepro = prepro_fn(args.max_art, args.max_abs)
 
     def sort_key(sample):
@@ -86,7 +106,7 @@ def build_batchers(word2id, cuda, debug):
     )
 
     train_loader = DataLoader(
-        MatchDataset('train'), batch_size=BUCKET_SIZE,
+        dataset('train'), batch_size=BUCKET_SIZE,
         shuffle=not debug,
         num_workers=4 if cuda and not debug else 0,
         collate_fn=coll_fn
@@ -95,7 +115,7 @@ def build_batchers(word2id, cuda, debug):
                                       single_run=False, fork=not debug)
 
     val_loader = DataLoader(
-        MatchDataset('val'), batch_size=BUCKET_SIZE,
+        dataset('val'), batch_size=BUCKET_SIZE,
         shuffle=False, num_workers=4 if cuda and not debug else 0,
         collate_fn=coll_fn
     )
@@ -107,7 +127,7 @@ def build_batchers(word2id, cuda, debug):
 def main(args):
     # configure training setting
     criterion, train_params = configure_training(
-        'adam', args.lr, args.clip, args.decay, args.batch
+        'adam', args.lr, args.clip, args.decay, args.batch, args.lm_coef
     )
 
     # make net
@@ -129,9 +149,19 @@ def main(args):
             'bidirectional': args.bi,
             'n_layer': args.n_layer,
             'dropout': args.dropout,
+            'language_model': {
+                'type': args.lm,
+                'num_output_representations': args.n_layer,
+                'requires_grad': args.lm_coef > 0,
+                'layer_norm': args.layer_norm,
+                'dropout': args.dropout,
+            }
         }
 
         net = CopySumm(**net_args)
+
+        if net_args['language_model']['type'] == 'elmo':
+            net.set_language_model(get_elmo_lm(vocab_to_cache=word2id, args=net_args['language_model']))
 
         meta = {
             'net': 'base_abstractor',
@@ -139,32 +169,35 @@ def main(args):
             'training_params': train_params
         }
 
+        id2words = {i: w for w, i in word2id.items()}
+        if args.w2v:
+            # NOTE: the pretrained embedding having the same dimension
+            #       as args.emb_dim should already be trained
+            embedding, _ = make_embedding(
+                id2words, args.w2v)
+            net.set_embedding(embedding)
+
+        # save experiment setting
+        if not exists(args.path):
+            os.makedirs(args.path)
+        with open(join(args.path, 'vocab.pkl'), 'wb') as f:
+            pkl.dump(word2id, f, pkl.HIGHEST_PROTOCOL)
+
     with open(join(args.path, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=4)
 
     # create data batcher, vocabulary
-    id2words = {i: w for w, i in word2id.items()}
+    dataset = ConcatenatedDataset if args.use_concatenated_dataset else MatchDataset
     train_batcher, val_batcher = build_batchers(word2id,
                                                 args.cuda,
-                                                args.debug)
-
-    if args.w2v:
-        # NOTE: the pretrained embedding having the same dimension
-        #       as args.emb_dim should already be trained
-        embedding, _ = make_embedding(
-            id2words, args.w2v)
-        net.set_embedding(embedding)
-
-    # save experiment setting
-    if not exists(args.path):
-        os.makedirs(args.path)
-    with open(join(args.path, 'vocab.pkl'), 'wb') as f:
-        pkl.dump(word2id, f, pkl.HIGHEST_PROTOCOL)
+                                                args.debug,
+                                                dataset)
 
     # prepare trainer
     val_fn = basic_validate(net, criterion)
     grad_fn = get_basic_grad_fn(net, args.clip)
-    optimizer = optim.Adam(filter(lambda p: p.requires_grad, net.parameters()), **train_params['optimizer'][1])
+    parameters_opt = filter(lambda p: p.requires_grad, net.parameters())
+    optimizer = optim.Adam(parameters_opt, **train_params['optimizer'][1])
     scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True,
                                   factor=args.decay, min_lr=0,
                                   patience=args.lr_p)
@@ -202,9 +235,9 @@ if __name__ == '__main__':
                         help='disable bidirectional LSTM encoder')
 
     # length limit
-    parser.add_argument('--max_art', type=int, action='store', default=400,
+    parser.add_argument('--max_art', type=int, action='store', default=100,
                         help='maximun words in a single article sentence')
-    parser.add_argument('--max_abs', type=int, action='store', default=100,
+    parser.add_argument('--max_abs', type=int, action='store', default=30,
                         help='maximun words in a single abstract sentence')
     # training options
     parser.add_argument('--lr', type=float, action='store', default=1e-3,
@@ -232,8 +265,13 @@ if __name__ == '__main__':
                         help='disable GPU training')
     parser.add_argument('--restore-model', action='store_true',
                         help='Restore from the best model')
-    parser.add_argument('--transformer-lm', action='store_true',
-                        help='Use pre-trained transform language model')
+    parser.add_argument('--lm', default=None, choices=('elmo',),
+                        help='Use pre-trained language model')
+    parser.add_argument('--lm-coef', type=float, default=0.5)
+    parser.add_argument('--lm-layer-norm', action='store_true')
+    parser.add_argument('--lm-dropout', type=float, default=0)
+    parser.add_argument('--use-concatenated-dataset', action='store_true',
+                        help='Use the complete dataset')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda

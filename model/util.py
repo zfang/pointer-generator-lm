@@ -3,17 +3,12 @@ import math
 import torch
 from torch.nn import functional as F
 
-DEVICE = None
-
 
 def get_device():
-    global DEVICE
-    if DEVICE is None:
-        if torch.cuda.is_available():
-            DEVICE = torch.device('cuda')
-        else:
-            DEVICE = torch.device('cpu')
-    return DEVICE
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    else:
+        return torch.device('cpu')
 
 
 #################### general sequence helper #########################

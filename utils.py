@@ -13,7 +13,7 @@ from cytoolz import concat, curry
 from torch import multiprocessing as mp
 from torch import nn
 
-from openai_transformer_lm.text_utils import TextEncoder
+from model.elmo import ElmoLM
 
 
 class ModelArguments:
@@ -29,10 +29,8 @@ END = 3
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
-TRANSFORMER_LM_ENCODER_PATH = os.path.join(CURRENT_DIR, 'openai_transformer_lm/model/encoder_bpe_40000.json')
-TRANSFORMER_LM_BPE_PATH = os.path.join(CURRENT_DIR, 'openai_transformer_lm/model/vocab_40000.bpe')
-TRANSFORMER_LM_N_CTX = 512
-TRANSFORMER_LM_N_SPECIAL = 2
+ELMO_OPTIONS_FILE = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_options.json"
+ELMO_WEIGHT_FILE = "https://s3-us-west-2.amazonaws.com/allennlp/models/elmo/2x1024_128_2048cnn_1xhighway/elmo_2x1024_128_2048cnn_1xhighway_weights.hdf5"
 
 _PRUNE = defaultdict(
     lambda: 2,
@@ -96,7 +94,7 @@ def rerank(all_beams, ext_inds, debug=False):
 
 def rerank_mp(all_beams, ext_inds, debug=False):
     beam_lists = [all_beams[i: i + n] for i, n in ext_inds if n > 0]
-    with mp.Pool(os.cpu_count() or 1) as pool:
+    with mp.get_context("spawn").Pool(os.cpu_count() or 1) as pool:
         reranked = pool.map(rerank_one(debug=debug), beam_lists)
     return list(concat(reranked))
 
@@ -130,11 +128,16 @@ def _compute_score(hyps):
     return -repeat, lp
 
 
-def get_transformer_lm_encoder():
-    text_encoder = TextEncoder(TRANSFORMER_LM_ENCODER_PATH, TRANSFORMER_LM_BPE_PATH)
-    encoder = text_encoder.encoder
-    n_vocab = len(encoder)
-    encoder['_start_'] = n_vocab
-    encoder['_classify_'] = n_vocab
+def get_elmo_lm(vocab_to_cache,
+                args,
+                cuda=True):
+    new_args = args
+    del new_args['type']
+    elmo = ElmoLM(options_file=ELMO_OPTIONS_FILE,
+                  weight_file=ELMO_WEIGHT_FILE,
+                  vocab_to_cache=vocab_to_cache,
+                  **new_args)
+    if cuda:
+        elmo = elmo.cuda()
 
-    return text_encoder
+    return elmo

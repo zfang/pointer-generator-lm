@@ -2,7 +2,6 @@
 import random
 from collections import defaultdict
 
-import numpy as np
 import torch
 import torch.multiprocessing as mp
 from cytoolz import curry, concat
@@ -51,7 +50,7 @@ def prepro_fn(max_src_len, max_tgt_len, batch):
 
 
 @curry
-def convert_batch_copy(unk, word2id, batch, lm_word2id=None):
+def convert_batch_copy(unk, word2id, batch):
     sources, targets = map(list, unzip(batch))
     ext_word2id = dict(word2id)
     for source in sources:
@@ -63,13 +62,7 @@ def convert_batch_copy(unk, word2id, batch, lm_word2id=None):
     tar_ins_ids = convert2id(unk, word2id, targets)
     targets_ids = convert2id(unk, ext_word2id, targets)
 
-    lm_ids = None
-    if lm_word2id is not None:
-        sources_lm_ids = lm_word2id(sources)
-        targets_lm_ids = lm_word2id(targets)
-        lm_ids = (sources_lm_ids, targets_lm_ids)
-
-    batch = list(zip(sources_ids, src_exts_ids, tar_ins_ids, targets_ids, lm_ids))
+    batch = list(zip(sources_ids, src_exts_ids, tar_ins_ids, targets_ids))
 
     return batch
 
@@ -94,7 +87,7 @@ def pad_batch_tensorize(inputs, pad, cuda=True):
 
 
 @curry
-def batchify_fn_copy(pad, start, end, data, cuda=True, lm_batchify=None):
+def batchify_fn_copy(pad, start, end, data, cuda=True):
     sources, ext_srcs, tar_ins, targets, lm_ids = tuple(map(list, unzip(data)))
 
     src_lens = [len(src) for src in sources]
@@ -111,34 +104,10 @@ def batchify_fn_copy(pad, start, end, data, cuda=True, lm_batchify=None):
 
     ext_vsize = ext_src.max().item() + 1
 
-    source_lm, targets_lm = None, None
-    if lm_ids is not None:
-        source_lm, targets_lm = lm_ids
-        source_lm = lm_batchify(source_lm)
-        targets_lm = lm_batchify(targets_lm)
-
-    fw_args = (source, src_lens, tar_in, ext_src, ext_vsize, source_lm)
-    loss_args = (target, targets_lm)
+    fw_args = (source, src_lens, tar_in, ext_src, ext_vsize)
+    loss_args = (target,)
 
     return fw_args, loss_args
-
-
-@curry
-def lm_batchify(word_ids, n_vocab, n_special, n_ctx, start, clf_token, cuda=True):
-    n_batch = len(word_ids)
-    max_len = n_ctx - 2
-    device = 'cuda' if cuda else 'cpu'
-    xmb = np.zeros((n_batch, n_ctx, 2), dtype=np.int32)
-    mmb = np.zeros((n_batch, n_ctx), dtype=np.float32)
-    for i, x, in enumerate(word_ids):
-        new_x = [start] + x[:max_len] + [clf_token]
-        l = len(new_x)
-        xmb[i, :l, 0] = new_x
-        mmb[i, :l] = 1
-    xmb[:, :, 1] = np.arange(n_vocab + n_special, n_vocab + n_special + n_ctx)
-    xmb = torch.tensor(xmb, dtype=torch.long).to(device)
-    mmb = torch.tensor(mmb).to(device)
-    return xmb, mmb
 
 
 def _batch2q(loader, prepro, q, single_run=True):
