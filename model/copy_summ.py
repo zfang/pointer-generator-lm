@@ -62,7 +62,7 @@ class CopySumm(Seq2SeqSumm):
             init.xavier_normal_(self._attn_wq_lm)
             init.xavier_normal_(self._attn_final)
 
-            attn_wq_lm, attn_final = self.attn_wq_lm, self.attn_final
+            attn_wq_lm, attn_final = self._attn_wq_lm, self._attn_final
 
         self._decoder = CopyLSTMDecoder(self._copy,
                                         attn_wq_lm,
