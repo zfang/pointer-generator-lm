@@ -150,7 +150,6 @@ def main(args):
             'dropout': args.dropout,
         }
 
-        net = CopySumm(**net_args)
         language_model_args = {
             'type': args.lm,
             'requires_grad': args.lm_coef > 0,
@@ -159,9 +158,12 @@ def main(args):
         }
 
         id2words = {i: w for w, i in word2id.items()}
+        language_model = None
         if language_model_args['type'] == 'elmo':
-            net.set_language_model(get_elmo_lm(vocab_to_cache=[id2words[i] for i in range(len(id2words))],
-                                               args=language_model_args))
+            language_model = get_elmo_lm(vocab_to_cache=[id2words[i] for i in range(len(id2words))],
+                                         args=language_model_args)
+
+        net = CopySumm(**net_args, language_model=language_model)
 
         meta = {
             'net': 'base_abstractor',

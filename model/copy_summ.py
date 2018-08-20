@@ -41,19 +41,27 @@ class CopySumm(Seq2SeqSumm):
                  n_hidden,
                  bidirectional,
                  n_layer,
-                 dropout=0.0):
+                 dropout=0.0,
+                 language_model=None):
         super().__init__(vocab_size,
                          emb_dim,
                          n_hidden,
                          bidirectional,
                          n_layer,
                          dropout)
-        self._n_hidden = n_hidden
         self._copy = _CopyLinear(n_hidden, n_hidden, 2 * emb_dim)
-        self._decoder = CopyLSTMDecoder(
-            self._copy, self._embedding, self._dec_lstm,
-            self._attn_wq, self._projection
-        )
+
+        if language_model is not None:
+            self._language_model = language_model
+            self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
+            init.xavier_normal_(self._attn_lm)
+
+        self._decoder = CopyLSTMDecoder(self._copy,
+                                        n_hidden if language_model is not None else 0,
+                                        self._embedding,
+                                        self._dec_lstm,
+                                        self._attn_wq,
+                                        self._projection)
 
     def forward(self, article, art_lens, abstract, extend_art, extend_vsize):
         attention, init_dec_states = self.encode(article, art_lens)
@@ -191,17 +199,16 @@ class CopySumm(Seq2SeqSumm):
                     outputs[i] = (f + b)[:beam_size]
         return outputs
 
-    def set_language_model(self, language_model):
-        self._language_model = language_model
-        self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), self._n_hidden))
-        init.xavier_normal_(self._attn_lm)
-        self._decoder.init_lm_attention(self._n_hidden)
-
 
 class CopyLSTMDecoder(AttentionalLSTMDecoder):
-    def __init__(self, copy, *args, **kwargs):
+    def __init__(self, copy, n_hidden, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._copy = copy
+        if n_hidden:
+            self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+            self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+            init.xavier_normal_(self._attn_wq_lm)
+            init.xavier_normal_(self._attn_final)
 
     def _step(self, tok, states, attention):
         prev_states, prev_out = states
@@ -292,12 +299,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def _compute_copy_activation(self, context, state, input_, score):
         copy = self._copy(context, state, input_) * score
         return copy
-
-    def init_lm_attention(self, n_hidden):
-        self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden).to(get_device()))
-        self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden).to(get_device()))
-        init.xavier_normal_(self._attn_wq_lm)
-        init.xavier_normal_(self._attn_final)
 
     def compute_attention(self, lstm_out, attention):
         query = torch.mm(lstm_out, self._attn_w)

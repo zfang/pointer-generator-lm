@@ -57,8 +57,6 @@ class Abstractor(object):
         abs_ckpt = load_best_ckpt(abs_dir)
         word2id = pkl.load(open(join(abs_dir, 'vocab.pkl'), 'rb'))
 
-        abstractor = CopySumm(**abs_args)
-
         language_model = None
         language_model_arg = abs_meta['language_model']
         if language_model_arg['type'] is not None:
@@ -69,8 +67,7 @@ class Abstractor(object):
             else:
                 raise NotImplementedError(language_model_arg)
 
-        if language_model is not None:
-            abstractor.set_language_model(language_model)
+        abstractor = CopySumm(**abs_args, language_model=language_model)
 
         abstractor.load_state_dict(abs_ckpt)
         self._device = torch.device('cuda' if cuda else 'cpu')
