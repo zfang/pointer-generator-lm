@@ -34,5 +34,7 @@ class ElmoLM(torch.nn.Module):
             word_inputs = word_inputs.unsqueeze(dim=-1)
         result = self._elmo.forward(word_inputs, word_inputs)
         output, mask = result['elmo_representations'][0], result['mask']
-        logit = torch.matmul(output, self._elmo._elmo_lstm._word_embedding.weight.t())
+        weight = self._elmo._elmo_lstm._word_embedding.weight
+        embedding_weight = torch.cat((weight, weight), dim=-1)
+        logit = torch.matmul(output, embedding_weight.t())
         return output, mask, logit

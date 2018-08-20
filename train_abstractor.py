@@ -75,7 +75,7 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     }
 
     def nll(logit, target):
-        F.nll_loss(logit, target, reduce=False)
+        return F.nll_loss(logit, target, reduce=False)
 
     def criterion(logits, lm_args, targets):
         abs_loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
