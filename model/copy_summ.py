@@ -294,8 +294,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         return copy
 
     def init_lm_attention(self, n_hidden):
-        self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
-        self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+        self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden).to(get_device()))
+        self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden).to(get_device()))
         init.xavier_normal_(self._attn_wq_lm)
         init.xavier_normal_(self._attn_final)
 
