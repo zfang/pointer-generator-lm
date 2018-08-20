@@ -10,7 +10,7 @@ import torch
 from cytoolz import compose
 from os.path import join, exists
 from torch import optim
-from torch.nn import functional as F, DataParallel
+from torch.nn import functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
@@ -168,7 +168,6 @@ def main(args):
             'net_args': net_args,
             'training_params': train_params,
             'language_model': language_model_args,
-            'parallel': args.parallel,
         }
 
         if args.w2v:
@@ -186,9 +185,6 @@ def main(args):
 
     with open(join(args.path, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=4)
-
-    if args.parallel and not isinstance(net, DataParallel):
-        net = DataParallel(net)
 
     # create data batcher, vocabulary
     dataset = ConcatenatedDataset if args.use_concatenated_dataset else MatchDataset
@@ -276,12 +272,9 @@ if __name__ == '__main__':
     parser.add_argument('--lm-dropout', type=float, default=0)
     parser.add_argument('--use-concatenated-dataset', action='store_true',
                         help='Use the complete dataset')
-    parser.add_argument('--parallel', action='store_true',
-                        help='Train in parallel')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
-    args.parallel = args.parallel and torch.cuda.device_count() > 1
 
     random.seed(args.seed)
     np.random.seed(args.seed)

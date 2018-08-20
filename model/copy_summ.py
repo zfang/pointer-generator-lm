@@ -59,9 +59,9 @@ class CopySumm(Seq2SeqSumm):
         attention, init_dec_states = self.encode(article, art_lens)
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
 
-        lm_output, lm_mask, lm_attention = None, None, None
+        lm_output, lm_mask, lm_logit, lm_attention = None, None, None
         if self._language_model is not None:
-            lm_output, lm_mask = self._language_model(article)
+            lm_output, lm_mask, lm_logit = self._language_model(article)
             lm_attention = torch.matmul(lm_output, self._attn_lm)
 
         attention_args = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
@@ -71,8 +71,8 @@ class CopySumm(Seq2SeqSumm):
             init_dec_states, abstract
         )
 
-        if lm_output is not None:
-            return logit, (article, lm_output)
+        if lm_logit is not None:
+            return logit, (article, lm_logit)
         else:
             return logit, None
 

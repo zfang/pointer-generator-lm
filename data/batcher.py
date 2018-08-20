@@ -1,9 +1,8 @@
 """ batching """
 import random
-from collections import defaultdict
-
 import torch
 import torch.multiprocessing as mp
+from collections import defaultdict
 from cytoolz import curry, concat
 from toolz.sandbox import unzip
 

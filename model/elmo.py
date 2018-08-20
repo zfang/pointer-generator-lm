@@ -33,4 +33,6 @@ class ElmoLM(torch.nn.Module):
         if len(word_inputs.shape) == 1:
             word_inputs = word_inputs.unsqueeze(dim=-1)
         result = self._elmo.forward(word_inputs, word_inputs)
-        return result['elmo_representations'][0], result['mask']
+        output, mask = result['elmo_representations'][0], result['mask']
+        logit = torch.matmul(output, self._elmo._elmo_lstm._word_embedding.weight.t())
+        return output, mask, logit

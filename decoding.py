@@ -10,7 +10,6 @@ import re
 import torch
 from cytoolz import curry
 from os.path import join
-from torch.nn import DataParallel
 
 from data.batcher import convert2id, pad_batch_tensorize
 from data.data import CnnDmDataset
@@ -72,9 +71,6 @@ class Abstractor(object):
 
         if language_model is not None:
             abstractor.set_language_model(language_model)
-
-        if abs_meta['parallel']:
-            abstractor = DataParallel(abstractor)
 
         abstractor.load_state_dict(abs_ckpt)
         self._device = torch.device('cuda' if cuda else 'cpu')
