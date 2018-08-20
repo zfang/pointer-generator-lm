@@ -1,15 +1,15 @@
 """ utility functions"""
+from itertools import product
+
+import gensim
 import operator as op
 import os
 import re
-from collections import Counter, defaultdict
-from functools import reduce
-from itertools import product
-from os.path import basename
-
-import gensim
 import torch
+from collections import Counter, defaultdict
 from cytoolz import concat, curry
+from functools import reduce
+from os.path import basename
 from torch import multiprocessing as mp
 from torch import nn
 
@@ -131,7 +131,7 @@ def _compute_score(hyps):
 def get_elmo_lm(vocab_to_cache,
                 args,
                 cuda=True):
-    new_args = args
+    new_args = dict(args)
     del new_args['type']
     elmo = ElmoLM(options_file=ELMO_OPTIONS_FILE,
                   weight_file=ELMO_WEIGHT_FILE,

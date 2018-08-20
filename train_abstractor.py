@@ -1,14 +1,14 @@
 """ train the abstractor"""
 import argparse
 import json
-import os
 import pickle as pkl
-import random
-from os.path import join, exists
 
 import numpy as np
+import os
+import random
 import torch
 from cytoolz import compose
+from os.path import join, exists
 from torch import optim
 from torch.nn import functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -151,7 +151,7 @@ def main(args):
             'dropout': args.dropout,
             'language_model': {
                 'type': args.lm,
-                'num_output_representations': args.n_layer,
+                'num_output_representations': args.lm_layers,
                 'requires_grad': args.lm_coef > 0,
                 'layer_norm': args.layer_norm,
                 'dropout': args.dropout,
@@ -268,6 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('--lm', default=None, choices=('elmo',),
                         help='Use pre-trained language model')
     parser.add_argument('--lm-coef', type=float, default=0.5)
+    parser.add_argument('--lm-layers', type=int, default=1)
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
     parser.add_argument('--use-concatenated-dataset', action='store_true',
