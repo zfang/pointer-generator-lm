@@ -12,7 +12,6 @@ class ElmoLM(torch.nn.Module):
     def __init__(self,
                  options_file: str,
                  weight_file: str,
-                 num_output_representations: int,
                  requires_grad: bool,
                  do_layer_norm: bool,
                  dropout: float = 0,
@@ -21,7 +20,7 @@ class ElmoLM(torch.nn.Module):
 
         self._elmo = Elmo(options_file=options_file,
                           weight_file=weight_file,
-                          num_output_representations=num_output_representations,
+                          num_output_representations=1,
                           requires_grad=requires_grad,
                           do_layer_norm=do_layer_norm,
                           dropout=dropout,
@@ -34,4 +33,4 @@ class ElmoLM(torch.nn.Module):
         if len(word_inputs.shape) == 1:
             word_inputs = word_inputs.unsqueeze(dim=-1)
         result = self._elmo.forward(word_inputs, word_inputs)
-        return result['elmo_representations'], result['mask']
+        return result['elmo_representations'][0], result['mask']

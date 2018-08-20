@@ -154,7 +154,6 @@ def main(args):
         net = CopySumm(**net_args)
         language_model_args = {
             'type': args.lm,
-            'num_output_representations': args.lm_layers,
             'requires_grad': args.lm_coef > 0,
             'do_layer_norm': args.lm_layer_norm,
             'dropout': args.lm_dropout,
@@ -274,7 +273,6 @@ if __name__ == '__main__':
     parser.add_argument('--lm', default=None, choices=('elmo',),
                         help='Use pre-trained language model')
     parser.add_argument('--lm-coef', type=float, default=0.5)
-    parser.add_argument('--lm-layers', type=int, default=1)
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
     parser.add_argument('--use-concatenated-dataset', action='store_true',
