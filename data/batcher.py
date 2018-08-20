@@ -88,7 +88,7 @@ def pad_batch_tensorize(inputs, pad, cuda=True):
 
 @curry
 def batchify_fn_copy(pad, start, end, data, cuda=True):
-    sources, ext_srcs, tar_ins, targets, lm_ids = tuple(map(list, unzip(data)))
+    sources, ext_srcs, tar_ins, targets = tuple(map(list, unzip(data)))
 
     src_lens = [len(src) for src in sources]
     sources = [src for src in sources]

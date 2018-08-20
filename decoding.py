@@ -1,15 +1,16 @@
 """ decoding utilities"""
 import json
 import logging
-import os
 import pickle as pkl
-import re
 from itertools import starmap
-from os.path import join
 
 import numpy as np
+import os
+import re
 import torch
 from cytoolz import curry
+from os.path import join
+from torch.nn import DataParallel
 
 from data.batcher import convert2id, pad_batch_tensorize
 from data.data import CnnDmDataset
@@ -53,21 +54,27 @@ class Abstractor(object):
     def __init__(self, abs_dir, max_len=30, cuda=True):
         abs_meta = json.load(open(join(abs_dir, 'meta.json')))
         assert abs_meta['net'] == 'base_abstractor'
-        abs_args = dict(abs_meta['net_args'])
+        abs_args = abs_meta['net_args']
         abs_ckpt = load_best_ckpt(abs_dir)
         word2id = pkl.load(open(join(abs_dir, 'vocab.pkl'), 'rb'))
+
+        abstractor = CopySumm(**abs_args)
+
         language_model = None
-        language_model_arg = abs_args.get('language_model', None)
-        if language_model_arg is not None and language_model_arg['type'] is not None:
+        language_model_arg = abs_meta['language_model']
+        if language_model_arg['type'] is not None:
             if language_model_arg['type'] == 'elmo':
-                language_model = get_elmo_lm(vocab_to_cache=word2id, args=language_model_arg)
-                del abs_args['language_model']
+                id2words = {i: w for w, i in word2id.items()}
+                language_model = get_elmo_lm(vocab_to_cache=[id2words[i] for i in range(len(id2words))],
+                                             args=language_model_arg)
             else:
                 raise NotImplementedError(language_model_arg)
 
-        abstractor = CopySumm(**abs_args)
         if language_model is not None:
             abstractor.set_language_model(language_model)
+
+        if abs_meta['parallel']:
+            abstractor = DataParallel(abstractor)
 
         abstractor.load_state_dict(abs_ckpt)
         self._device = torch.device('cuda' if cuda else 'cpu')

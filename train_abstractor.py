@@ -10,7 +10,7 @@ import torch
 from cytoolz import compose
 from os.path import join, exists
 from torch import optim
-from torch.nn import functional as F
+from torch.nn import functional as F, DataParallel
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
@@ -82,8 +82,8 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
         abs_loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
 
         if lm_coef > 0 and lm_args is not None:
-            article, lm_activations = lm_args
-            lm_loss = sequence_loss(logits, article, nll, pad_idx=PAD)
+            article, lm_output = lm_args
+            lm_loss = sequence_loss(lm_output, article, nll, pad_idx=PAD)
             loss = abs_loss.mean() + lm_coef * lm_loss.mean()
         else:
             loss = abs_loss.mean()
@@ -149,27 +149,30 @@ def main(args):
             'bidirectional': args.bi,
             'n_layer': args.n_layer,
             'dropout': args.dropout,
-            'language_model': {
-                'type': args.lm,
-                'num_output_representations': args.lm_layers,
-                'requires_grad': args.lm_coef > 0,
-                'layer_norm': args.layer_norm,
-                'dropout': args.dropout,
-            }
         }
 
         net = CopySumm(**net_args)
+        language_model_args = {
+            'type': args.lm,
+            'num_output_representations': args.lm_layers,
+            'requires_grad': args.lm_coef > 0,
+            'do_layer_norm': args.lm_layer_norm,
+            'dropout': args.lm_dropout,
+        }
 
-        if net_args['language_model']['type'] == 'elmo':
-            net.set_language_model(get_elmo_lm(vocab_to_cache=word2id, args=net_args['language_model']))
+        id2words = {i: w for w, i in word2id.items()}
+        if language_model_args['type'] == 'elmo':
+            net.set_language_model(get_elmo_lm(vocab_to_cache=[id2words[i] for i in range(len(id2words))],
+                                               args=language_model_args))
 
         meta = {
             'net': 'base_abstractor',
             'net_args': net_args,
-            'training_params': train_params
+            'training_params': train_params,
+            'language_model': language_model_args,
+            'parallel': args.parallel,
         }
 
-        id2words = {i: w for w, i in word2id.items()}
         if args.w2v:
             # NOTE: the pretrained embedding having the same dimension
             #       as args.emb_dim should already be trained
@@ -185,6 +188,9 @@ def main(args):
 
     with open(join(args.path, 'meta.json'), 'w') as f:
         json.dump(meta, f, indent=4)
+
+    if args.parallel and not isinstance(net, DataParallel):
+        net = DataParallel(net)
 
     # create data batcher, vocabulary
     dataset = ConcatenatedDataset if args.use_concatenated_dataset else MatchDataset
@@ -273,9 +279,12 @@ if __name__ == '__main__':
     parser.add_argument('--lm-dropout', type=float, default=0)
     parser.add_argument('--use-concatenated-dataset', action='store_true',
                         help='Use the complete dataset')
+    parser.add_argument('--parallel', action='store_true',
+                        help='Train in parallel')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
+    args.parallel = args.parallel and torch.cuda.device_count() > 1
 
     random.seed(args.seed)
     np.random.seed(args.seed)

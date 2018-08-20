@@ -34,4 +34,4 @@ class ElmoLM(torch.nn.Module):
         if len(word_inputs.shape) == 1:
             word_inputs = word_inputs.unsqueeze(dim=-1)
         result = self._elmo.forward(word_inputs, word_inputs)
-        return result['activations'], result['mask']
+        return result['elmo_representations'], result['mask']

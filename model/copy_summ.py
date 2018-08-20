@@ -59,10 +59,10 @@ class CopySumm(Seq2SeqSumm):
         attention, init_dec_states = self.encode(article, art_lens)
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
 
-        lm_activations, lm_mask, lm_attention = None, None, None
+        lm_output, lm_mask, lm_attention = None, None, None
         if self._language_model is not None:
-            lm_activations, lm_mask = self._language_model(article)
-            lm_attention = torch.matmul(lm_activations, self._attn_lm)
+            lm_output, lm_mask = self._language_model(article)
+            lm_attention = torch.matmul(lm_output, self._attn_lm)
 
         attention_args = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
 
@@ -71,8 +71,8 @@ class CopySumm(Seq2SeqSumm):
             init_dec_states, abstract
         )
 
-        if lm_activations is not None:
-            return logit, (article, lm_activations)
+        if lm_output is not None:
+            return logit, (article, lm_output)
         else:
             return logit, None
 
@@ -296,7 +296,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def init_lm_attention(self, n_hidden):
         self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
         self._attn_final = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
-        init.xavier_normal_(self._attn_lm)
+        init.xavier_normal_(self._attn_wq_lm)
         init.xavier_normal_(self._attn_final)
 
     def compute_attention(self, lstm_out, attention):

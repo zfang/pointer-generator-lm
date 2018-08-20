@@ -15,13 +15,6 @@ from torch import nn
 
 from model.elmo import ElmoLM
 
-
-class ModelArguments:
-    def __init__(self, **kwargs):
-        for k, v in kwargs:
-            setattr(self, k, v)
-
-
 PAD = 0
 UNK = 1
 START = 2
