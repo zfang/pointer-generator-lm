@@ -26,8 +26,11 @@ class ElmoLM(torch.nn.Module):
                           dropout=dropout,
                           vocab_to_cache=vocab_to_cache)
 
+        self.output_dim = self._elmo.get_output_dim()
+        del self._elmo._elmo_lstm._token_embedder
+
     def get_output_dim(self):
-        return self._elmo.get_output_dim()
+        return self.output_dim
 
     def forward(self, word_inputs: torch.Tensor):
         if len(word_inputs.shape) == 1:

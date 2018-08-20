@@ -121,16 +121,12 @@ def _compute_score(hyps):
     return -repeat, lp
 
 
-def get_elmo_lm(vocab_to_cache,
-                args,
-                cuda=True):
+def get_elmo_lm(vocab_to_cache, args):
     new_args = dict(args)
     del new_args['type']
     elmo = ElmoLM(options_file=ELMO_OPTIONS_FILE,
                   weight_file=ELMO_WEIGHT_FILE,
                   vocab_to_cache=vocab_to_cache,
                   **new_args)
-    if cuda:
-        elmo = elmo.cuda()
 
     return elmo

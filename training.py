@@ -1,13 +1,13 @@
 """ module providing basic training utilities"""
-import os
 from datetime import timedelta
 from itertools import starmap
-from os.path import join
 from time import time
 
+import os
 import tensorboardX
 import torch
 from cytoolz import curry, reduce
+from os.path import join
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
