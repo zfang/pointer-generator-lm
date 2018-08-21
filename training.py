@@ -104,12 +104,7 @@ class BasicPipeline(object):
 
         # backward and update ( and optional gradient monitoring )
         loss = self._criterion(*loss_args)
-        if isinstance(loss, tuple):
-            for l in loss:
-                l.backward(retain_graph=True)
-            loss = sum(loss)
-        else:
-            loss.backward()
+        loss.backward()
 
         log_dict['loss'] = loss.item()
         if self._grad_fn is not None:

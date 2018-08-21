@@ -77,16 +77,19 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     def nll(logit, target):
         return F.nll_loss(logit, target, reduce=False)
 
-    def criterion(logits, lm_args, targets):
+    def criterion(output, targets):
+        logits = output['logit']
         abs_loss = sequence_loss(logits, targets, nll, pad_idx=PAD).mean()
+        loss = abs_loss
 
+        lm_args = output.get('lm')
         if lm_coef > 0 and lm_args is not None:
             article, lm_output = lm_args
             lm_loss = sequence_loss(lm_output, article, nll, pad_idx=PAD).mean()
             lm_loss = lm_coef * lm_loss
-            return abs_loss, lm_loss
-        else:
-            return abs_loss
+            loss += lm_loss
+
+        return loss
 
     return criterion, train_params
 

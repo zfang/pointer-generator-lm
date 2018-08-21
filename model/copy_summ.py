@@ -88,10 +88,10 @@ class CopySumm(Seq2SeqSumm):
             init_dec_states, abstract
         )
 
+        result = {'logit': logit}
         if lm_logit is not None:
-            return logit, (article, lm_logit)
-        else:
-            return logit, None
+            result['lm'] = (article, lm_logit)
+        return result
 
     def batch_decode(self, article, art_lens, extend_art, extend_vsize, go, eos, unk, max_len):
         """ greedy decode support batching"""
