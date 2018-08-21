@@ -103,7 +103,7 @@ class BasicPipeline(object):
         loss_args = self.get_loss_args(net_out, bw_args)
 
         # backward and update ( and optional gradient monitoring )
-        loss = self._criterion(*loss_args)
+        loss = self._criterion(*loss_args).mean()
         loss.backward()
 
         log_dict['loss'] = loss.item()
