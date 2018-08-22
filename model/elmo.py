@@ -21,13 +21,15 @@ class ElmoLM(torch.nn.Module):
         self._elmo = Elmo(options_file=options_file,
                           weight_file=weight_file,
                           num_output_representations=1,
-                          requires_grad=requires_grad,
+                          requires_grad=False,
                           do_layer_norm=do_layer_norm,
                           dropout=dropout,
                           vocab_to_cache=vocab_to_cache)
 
         self.output_dim = self._elmo.get_output_dim()
         del self._elmo._elmo_lstm._token_embedder
+        for p in self._elmo._elmo_lstm._elmo_lstm.parameters():
+            p.requires_grad = requires_grad
 
     def get_output_dim(self):
         return self.output_dim
