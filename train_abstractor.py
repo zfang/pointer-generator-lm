@@ -7,7 +7,7 @@ import numpy as np
 import os
 import random
 import torch
-from cytoolz import compose
+from cytoolz import compose, curry
 from os.path import join, exists
 from torch import optim
 from torch.nn import functional as F
@@ -61,12 +61,13 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     def nll(logit, target):
         return F.nll_loss(logit, target, reduce=False)
 
-    def criterion(output, targets):
+    @curry
+    def criterion(output, targets, training):
         logits = output['logit']
         loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
 
         lm_args = output.get('lm')
-        if lm_coef > 0 and lm_args is not None:
+        if training and lm_coef > 0 and lm_args is not None:
             article, lm_output = lm_args
             lm_loss = sequence_loss(lm_output, article, nll, pad_idx=PAD)
             lm_loss = lm_coef * lm_loss.mean()
@@ -181,7 +182,7 @@ def main(args):
                                                 dataset)
 
     # prepare trainer
-    val_fn = basic_validate(net, criterion)
+    val_fn = basic_validate(net, criterion(training=False))
     grad_fn = get_basic_grad_fn(net, args.clip)
     parameters_opt = filter(lambda p: p.requires_grad, net.parameters())
     optimizer = optim.Adam(parameters_opt, **train_params['optimizer'][1])
@@ -193,7 +194,7 @@ def main(args):
         net = net.cuda()
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion, optimizer, grad_fn)
+                             criterion(training=True), optimizer, grad_fn)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
 
