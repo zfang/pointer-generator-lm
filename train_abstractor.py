@@ -36,22 +36,6 @@ except KeyError:
     print('please use environment variable to specify data directories')
 
 
-class MatchDataset(CnnDmDataset):
-    """ single article sentence -> single abstract sentence
-    (dataset created by greedily matching ROUGE)
-    """
-
-    def __init__(self, split):
-        super().__init__(split, DATA_DIR)
-
-    def __getitem__(self, i):
-        js_data = super().__getitem__(i)
-        art_sents, abs_sents, extracts = (
-            js_data['article'], js_data['abstract'], js_data['extracted'])
-        matched_arts = [art_sents[i] for i in extracts]
-        return matched_arts, abs_sents[:len(extracts)]
-
-
 class ConcatenatedDataset(CnnDmDataset):
     def __init__(self, split):
         super().__init__(split, DATA_DIR)
@@ -190,7 +174,7 @@ def main(args):
         json.dump(meta, f, indent=4)
 
     # create data batcher, vocabulary
-    dataset = ConcatenatedDataset if args.use_concatenated_dataset else MatchDataset
+    dataset = ConcatenatedDataset
     train_batcher, val_batcher = build_batchers(word2id,
                                                 args.cuda,
                                                 args.debug,
@@ -238,9 +222,9 @@ if __name__ == '__main__':
                         help='disable bidirectional LSTM encoder')
 
     # length limit
-    parser.add_argument('--max_art', type=int, action='store', default=100,
+    parser.add_argument('--max_art', type=int, action='store', default=400,
                         help='maximun words in a single article sentence')
-    parser.add_argument('--max_abs', type=int, action='store', default=30,
+    parser.add_argument('--max_abs', type=int, action='store', default=100,
                         help='maximun words in a single abstract sentence')
     # training options
     parser.add_argument('--lr', type=float, action='store', default=1e-3,
@@ -251,7 +235,7 @@ if __name__ == '__main__':
                         help='patience for learning rate decay')
     parser.add_argument('--clip', type=float, action='store', default=2.0,
                         help='gradient clipping')
-    parser.add_argument('--batch', type=int, action='store', default=32,
+    parser.add_argument('--batch', type=int, action='store', default=16,
                         help='the training batch size')
     parser.add_argument('--dropout', type=float, default=0,
                         help='the probability for dropout')
@@ -273,8 +257,6 @@ if __name__ == '__main__':
     parser.add_argument('--lm-coef', type=float, default=0.5)
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
-    parser.add_argument('--use-concatenated-dataset', action='store_true',
-                        help='Use the complete dataset')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
