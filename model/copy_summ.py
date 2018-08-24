@@ -225,8 +225,9 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         states = self._lstm(lstm_in, prev_states)
         lstm_out = states[0][-1]
 
-        extend_src, extend_vsize, context, score = \
-            self.compute_attention(lstm_out=lstm_out, attention=attention)
+        extend_src, extend_vsize, context, score = self.compute_attention(lstm_out=lstm_out,
+                                                                          attention=attention,
+                                                                          query_func=torch.mm)
 
         dec_out = self._projection(torch.cat([lstm_out, context], dim=1))
 
@@ -262,8 +263,9 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         lstm_out = states[0][-1]
 
         # attention is beamable
-        extend_src, extend_vsize, context, score = \
-            self.compute_attention(lstm_out=lstm_out, attention=attention)
+        extend_src, extend_vsize, context, score = self.compute_attention(lstm_out=lstm_out,
+                                                                          attention=attention,
+                                                                          query_func=torch.matmul)
 
         dec_out = self._projection(torch.cat([lstm_out, context], dim=-1))
 
@@ -306,14 +308,14 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         copy = self._copy(context, state, input_) * score
         return copy
 
-    def compute_attention(self, lstm_out, attention):
-        query = torch.mm(lstm_out, self._attn_w)
+    def compute_attention(self, lstm_out, attention, query_func):
+        query = query_func(lstm_out, self._attn_w)
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
         context, score, raw_score = step_attention(
             query, attention, attention, attn_mask, return_raw_score=True)
 
         if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm, self._attn_final)):
-            query_lm = torch.mm(lstm_out, self._attn_wq_lm)
+            query_lm = query_func(lstm_out, self._attn_wq_lm)
             context_lm, score_lm, raw_score_lm = step_attention(
                 query_lm, lm_attention, lm_attention, lm_mask, return_raw_score=True)
             concatenated_context = torch.cat((context, context_lm), dim=-1)

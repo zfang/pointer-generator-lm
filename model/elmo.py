@@ -28,7 +28,11 @@ class ElmoLM(torch.nn.Module):
 
         self.output_dim = self._elmo.get_output_dim()
         del self._elmo._elmo_lstm._token_embedder
+
         for p in self._elmo._elmo_lstm._elmo_lstm.parameters():
+            p.requires_grad = requires_grad
+
+        for p in self._elmo._elmo_lstm._word_embedding.parameters():
             p.requires_grad = requires_grad
 
     def get_output_dim(self):

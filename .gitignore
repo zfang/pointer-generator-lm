@@ -1,15 +1,9 @@
-env/
+.envrc/
 .idea/
 .DS_Store
 __pycache__/
 pretrained/
-.dataset*
-.dataset*/
-.output*/
-cnn-dailymail-*/
-meteor-1.5/
 src/
-.stats/
 build/
 dist/
 *.log
