@@ -73,13 +73,9 @@ class CopySumm(Seq2SeqSumm):
                                         self._projection)
 
     def forward(self, article, art_lens, abstract, extend_art, extend_vsize):
-        attention, init_dec_states = self.encode(article, art_lens)
-        mask = len_mask(art_lens, get_device()).unsqueeze(-2)
-
-        lm_output, lm_mask, lm_logit, lm_attention = None, None, None, None
-        if self._language_model is not None:
-            lm_output, lm_mask, lm_logit = self._language_model(article)
-            lm_attention = torch.matmul(lm_output, self._attn_lm)
+        attention, mask, init_dec_states, lm_attention, lm_mask, lm_logit = self.encode(article,
+                                                                                        art_lens,
+                                                                                        compute_lm_logit=True)
 
         attention_args = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
 
@@ -92,6 +88,17 @@ class CopySumm(Seq2SeqSumm):
         if lm_logit is not None:
             result['lm'] = (article, lm_logit)
         return result
+
+    def encode(self, article, art_lens, compute_lm_logit=False):
+        attention, init_dec_states = super().encode(article, art_lens)
+        mask = len_mask(art_lens, get_device()).unsqueeze(-2)
+
+        lm_mask, lm_logit, lm_attention = None, None, None
+        if self._language_model is not None:
+            lm_output, lm_mask, lm_logit = self._language_model(article, return_logit=compute_lm_logit)
+            lm_attention = torch.matmul(lm_output, self._attn_lm)
+
+        return attention, mask, init_dec_states, lm_attention, lm_mask, lm_logit
 
     def batch_decode(self, article, art_lens, extend_art, extend_vsize, go, eos, unk, max_len):
         """ greedy decode support batching"""
@@ -136,9 +143,10 @@ class CopySumm(Seq2SeqSumm):
                            go, eos, unk, max_len, beam_size, diverse=1.0):
         batch_size = len(art_lens)
         vsize = self._embedding.num_embeddings
-        attention, init_dec_states = self.encode(article, art_lens)
-        mask = len_mask(art_lens, get_device()).unsqueeze(-2)
-        all_attention = (attention, mask, extend_art, extend_vsize)
+        attention, mask, init_dec_states, lm_attention, lm_mask, _ = self.encode(article,
+                                                                                 art_lens,
+                                                                                 compute_lm_logit=False)
+        all_attention = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
         attention = all_attention
         (h, c), prev = init_dec_states
         all_beams = [bs.init_beam(go, (h[:, i, :], c[:, i, :], prev[i]))
@@ -180,10 +188,8 @@ class CopySumm(Seq2SeqSumm):
                     all_beams[i] = []
                     outputs[i] = finished[:beam_size]
                     # exclude finished inputs
-                    (attention, mask, extend_art, extend_vsize
-                     ) = all_attention
-                    masks = [mask[j] for j, o in enumerate(outputs)
-                             if o is None]
+                    attention, mask, extend_art, extend_vsize, lm_attention, lm_mask = all_attention
+                    masks = [mask[j] for j, o in enumerate(outputs) if o is None]
                     ind = [j for j, o in enumerate(outputs) if o is None]
                     ind = torch.LongTensor(ind).to(get_device())
                     attention, extend_art = map(
@@ -194,8 +200,7 @@ class CopySumm(Seq2SeqSumm):
                         mask = torch.stack(masks, dim=0)
                     else:
                         mask = None
-                    attention = (
-                        attention, mask, extend_art, extend_vsize)
+                    attention = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
                 else:
                     all_beams[i] = new_beam
                     finished_beams[i] = finished
