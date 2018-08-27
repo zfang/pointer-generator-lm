@@ -192,9 +192,9 @@ class CopySumm(Seq2SeqSumm):
                     masks = [mask[j] for j, o in enumerate(outputs) if o is None]
                     ind = [j for j, o in enumerate(outputs) if o is None]
                     ind = torch.LongTensor(ind).to(get_device())
-                    attention, extend_art = map(
+                    attention, extend_art, lm_attention = map(
                         lambda v: v.index_select(dim=0, index=ind),
-                        [attention, extend_art]
+                        [attention, extend_art, lm_attention]
                     )
                     if masks:
                         mask = torch.stack(masks, dim=0)
