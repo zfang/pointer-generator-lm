@@ -12,7 +12,7 @@ INIT = 1e-2
 
 class Seq2SeqSumm(nn.Module):
     def __init__(self, vocab_size, emb_dim,
-                 n_hidden, bidirectional, n_layer, dropout=0.0, transformer_lm=None):
+                 n_hidden, bidirectional, n_layer, dropout=0.0):
         super().__init__()
         # embedding weight parameter is shared between encoder, decoder,
         # and used as final projection layer to vocab logit

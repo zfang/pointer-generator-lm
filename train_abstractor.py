@@ -138,7 +138,7 @@ def main(args):
 
         language_model_args = {
             'type': args.lm,
-            'requires_grad': args.lm_coef > 0,
+            'requires_grad': args.lm_requires_grad,
             'do_layer_norm': args.lm_layer_norm,
             'dropout': args.lm_dropout,
         }
@@ -255,7 +255,8 @@ if __name__ == '__main__':
                         help='Restore from the best model')
     parser.add_argument('--lm', default=None, choices=('elmo',),
                         help='Use pre-trained language model')
-    parser.add_argument('--lm-coef', type=float, default=0.5)
+    parser.add_argument('--lm-coef', type=float, default=0)
+    parser.add_argument('--lm-requires-grad', action='store_true')
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
     args = parser.parse_args()

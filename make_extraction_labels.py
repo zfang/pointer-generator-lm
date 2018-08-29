@@ -1,15 +1,15 @@
 """produce the dataset with (psudo) extraction label"""
 import json
 import multiprocessing as mp
-import os
 from datetime import timedelta
-from os.path import join
 from time import time
 
+import os
 from cytoolz import curry, compose
+from os.path import join
 
-from fast_abs_rl.utils import count_data
 from metric import compute_rouge_l
+from utils import count_data
 
 try:
     DATA_DIR = os.environ['DATA']
