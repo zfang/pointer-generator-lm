@@ -66,6 +66,7 @@ class CopySumm(Seq2SeqSumm):
 
         self._language_model = language_model
         self._attn_wq_lm = None
+        self._attn_wc_lm = None
         if language_model is not None:
             self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
             init.xavier_normal_(self._attn_lm)
@@ -204,10 +205,16 @@ class CopySumm(Seq2SeqSumm):
                     masks = [mask[j] for j, o in enumerate(outputs) if o is None]
                     ind = [j for j, o in enumerate(outputs) if o is None]
                     ind = torch.LongTensor(ind).to(get_device())
-                    attention, extend_art, lm_attention = map(
-                        lambda v: v.index_select(dim=0, index=ind),
-                        [attention, extend_art, lm_attention]
-                    )
+                    if lm_attention is not None:
+                        attention, extend_art, lm_attention = map(
+                            lambda v: v.index_select(dim=0, index=ind),
+                            [attention, extend_art, lm_attention]
+                        )
+                    else:
+                        attention, extend_art = map(
+                            lambda v: v.index_select(dim=0, index=ind),
+                            [attention, extend_art]
+                        )
                     if masks:
                         mask = torch.stack(masks, dim=0)
                     else:
