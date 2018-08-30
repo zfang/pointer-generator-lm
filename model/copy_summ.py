@@ -66,7 +66,7 @@ class CopySumm(Seq2SeqSumm):
 
         self._language_model = language_model
         self._attn_wq_lm = None
-        self._attn_wc_lm = None
+        self._attn_wm_lm = None
         if language_model is not None:
             self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
             init.xavier_normal_(self._attn_lm)
@@ -74,12 +74,12 @@ class CopySumm(Seq2SeqSumm):
             self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
             init.xavier_normal_(self._attn_wq_lm)
 
-            self._attn_wc_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
-            init.xavier_normal_(self._attn_wc_lm)
+            self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+            init.xavier_normal_(self._attn_wm_lm)
 
         self._decoder = CopyLSTMDecoder(self._copy,
                                         self._attn_wq_lm,
-                                        self._attn_wc_lm,
+                                        self._attn_wm_lm,
                                         self._embedding,
                                         self._dec_lstm,
                                         self._attn_wq,
@@ -234,11 +234,11 @@ class CopySumm(Seq2SeqSumm):
 
 
 class CopyLSTMDecoder(AttentionalLSTMDecoder):
-    def __init__(self, copy, attn_wq_lm, attn_wc_lm, *args, **kwargs):
+    def __init__(self, copy, attn_wq_lm, attn_wm_lm, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._copy = copy
         self._attn_wq_lm = attn_wq_lm
-        self._attn_wc_lm = attn_wc_lm
+        self._attn_wm_lm = attn_wm_lm
 
     def _step(self, tok, states, attention):
         prev_states, prev_out = states
@@ -253,8 +253,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention,
                                                                                       query_func=torch.mm)
 
-        if lm_context is not None and self._attn_wc_lm is not None:
-            projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wc_lm)
+        if lm_context is not None and self._attn_wm_lm is not None:
+            projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
         dec_out = self._projection(torch.cat([lstm_out, projection_context], dim=-1))
@@ -295,8 +295,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention,
                                                                                       query_func=torch.matmul)
 
-        if lm_context is not None and self._attn_wc_lm is not None:
-            projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wc_lm)
+        if lm_context is not None and self._attn_wm_lm is not None:
+            projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
         dec_out = self._projection(torch.cat([lstm_out, projection_context], dim=-1))
@@ -343,11 +343,20 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def compute_attention(self, lstm_out, attention, query_func):
         query = query_func(lstm_out, self._attn_w)
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
-        context, score = step_attention(query, attention, attention, attn_mask)
+        context, score, raw_score = step_attention(query,
+                                                   attention,
+                                                   attention,
+                                                   attn_mask,
+                                                   return_raw_score=True)
 
         lm_context = None
         if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm)):
             lm_query = query_func(lstm_out, self._attn_wq_lm)
-            lm_context, _ = step_attention(lm_query, lm_attention, lm_attention, lm_mask)
+            lm_context, _, lm_raw_score = step_attention(lm_query,
+                                                         lm_attention,
+                                                         lm_attention,
+                                                         lm_mask,
+                                                         return_raw_score=True)
+            score = F.softmax(raw_score + lm_raw_score, dim=-1)
 
         return extend_src, extend_vsize, context, score, lm_context
