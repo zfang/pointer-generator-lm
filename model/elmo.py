@@ -1,7 +1,11 @@
-from typing import List
+from typing import List, Optional, Tuple
 
+import copy
 import torch
 from allennlp.modules.elmo import Elmo
+from allennlp.modules.lstm_cell_with_projection import LstmCellWithProjection
+
+from model.rnn import StackedLSTMCells
 
 
 class ElmoLM(torch.nn.Module):
@@ -51,3 +55,41 @@ class ElmoLM(torch.nn.Module):
             logit = torch.matmul(output, embedding_weight.t())
 
         return output, mask, logit
+
+    def get_forward_lstm_cells(self, n_layer=1, dropout=0.0):
+        forward_layers = self._elmo._elmo_lstm._elmo_lstm.forward_layers
+        if not (0 < n_layer <= len(forward_layers)):
+            raise ValueError('n_layer {}, len(forward_layers) {}'.format(n_layer, len(forward_layers)))
+
+        return MultiLayerElmoLstmCells([ElmoLstmCell(copy.deepcopy(cell)) for cell in forward_layers[:n_layer]],
+                                       dropout=dropout)
+
+
+class ElmoLstmCell(torch.nn.Module):
+    def __init__(self, cell: LstmCellWithProjection):
+        super().__init__()
+        self.cell = cell
+        self.memory_projection = torch.nn.Linear(cell.hidden_size, cell.cell_size, bias=False)
+
+    def forward(self, input_: torch.FloatTensor, states: Optional[Tuple[torch.Tensor, torch.Tensor]]):
+        if states is not None:
+            state, memory = states
+            if len(state.shape) == 2:
+                state = state.unsqueeze(dim=0)
+            if len(memory.shape) == 2:
+                memory = memory.unsqueeze(dim=0)
+            if memory.size(-1) == self.memory_projection.in_features:
+                memory = self.memory_projection(memory)
+
+            states = (state, memory)
+
+        return self.cell(input_.unsqueeze(dim=-2), [1] * input_.size(0), states)[1]
+
+
+class MultiLayerElmoLstmCells(StackedLSTMCells):
+    def __init__(self, cells: List[LstmCellWithProjection], dropout=0.0):
+        super().__init__(cells, dropout)
+
+    @property
+    def bidirectional(self):
+        return False

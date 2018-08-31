@@ -32,6 +32,22 @@ class DecodeDataset(CnnDmDataset):
         return [' '.join(art_sents)]
 
 
+class MatchDataset(CnnDmDataset):
+    """ single article sentence -> single abstract sentence
+    (dataset created by greedily matching ROUGE)
+    """
+
+    def __init__(self, split, dataset_dir):
+        super().__init__(split, dataset_dir)
+
+    def __getitem__(self, i):
+        js_data = super().__getitem__(i)
+        art_sents, abs_sents, extracts = (
+            js_data['article'], js_data['abstract'], js_data['extracted'])
+        matched_arts = [art_sents[i] for i in extracts]
+        return matched_arts
+
+
 def decode(save_path, model_dir, split, batch_size,
            beam_size, diverse, max_len, cuda):
     start = time()
@@ -53,7 +69,7 @@ def decode(save_path, model_dir, split, batch_size,
         articles = list(filter(bool, batch))
         return articles
 
-    dataset = DecodeDataset(split, DATASET_DIR)
+    dataset = MatchDataset(split, DATASET_DIR) if args.use_matched else DecodeDataset(split, DATASET_DIR)
 
     n_data = len(dataset)
     loader = DataLoader(
@@ -127,6 +143,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--no-cuda', action='store_true',
                         help='disable GPU training')
+    parser.add_argument('--use-matched', action='store_true')
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available() and not args.no_cuda
 

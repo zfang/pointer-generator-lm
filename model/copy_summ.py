@@ -62,7 +62,7 @@ class CopySumm(Seq2SeqSumm):
         self._copy = _CopyLinear(n_hidden,
                                  n_hidden,
                                  2 * emb_dim,
-                                 None if language_model is None else language_model.get_output_dim())
+                                 None if language_model is None else language_model.get_output_dim() // 2)
 
         self._language_model = language_model
         self._attn_wq_lm = None
@@ -76,6 +76,8 @@ class CopySumm(Seq2SeqSumm):
 
             self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
             init.xavier_normal_(self._attn_wm_lm)
+
+            self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
 
         self._decoder = CopyLSTMDecoder(self._copy,
                                         self._attn_wq_lm,
@@ -249,9 +251,11 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         states = self._lstm(lstm_in, prev_states)
         lstm_out = states[0][-1]
 
+        if len(lstm_out.shape) == 3:
+            lstm_out = lstm_out.squeeze(0)
+
         extend_src, extend_vsize, context, score, lm_context = self.compute_attention(lstm_out=lstm_out,
-                                                                                      attention=attention,
-                                                                                      query_func=torch.mm)
+                                                                                      attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
@@ -262,7 +266,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         # extend generation prob to extended vocabulary
         gen_prob = self._compute_gen_prob(dec_out, extend_vsize)
         # compute the probabilty of each copying
-        copy_prob = torch.sigmoid(self._copy(context, states[0][-1], lstm_in, lm_context))
+        copy_prob = torch.sigmoid(self._copy(context, lstm_out, lstm_in, lm_context))
         # add the copy prob to existing vocab distribution
         lp = torch.log(
             ((-copy_prob + 1) * gen_prob
@@ -290,10 +294,12 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                   c.contiguous().view(nl, beam, batch, -1))
         lstm_out = states[0][-1]
 
+        if len(lstm_out.shape) == 3:
+            lstm_out = lstm_out.squeeze(0)
+
         # attention is beamable
         extend_src, extend_vsize, context, score, lm_context = self.compute_attention(lstm_out=lstm_out,
-                                                                                      attention=attention,
-                                                                                      query_func=torch.matmul)
+                                                                                      attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
@@ -324,7 +330,9 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         if dec_out.device != embedding_weight.device:
             embedding_weight = embedding_weight.to(dec_out.device)
 
-        logit = torch.mm(dec_out, embedding_weight)
+        logit = self._matmul(dec_out, embedding_weight)
+        if len(logit.shape) == 3:
+            logit = logit.squeeze(0)
         bsize, vsize = logit.size()
         if extend_vsize > vsize:
             ext_logit = torch.Tensor(bsize, extend_vsize - vsize
@@ -340,7 +348,18 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         copy = self._copy(context, state, input_) * score
         return copy
 
-    def compute_attention(self, lstm_out, attention, query_func):
+    @staticmethod
+    def _matmul_func(x):
+        if isinstance(x, torch.Tensor):
+            return torch.matmul
+        else:
+            return torch.mm
+
+    def _matmul(self, x, y):
+        return self._matmul_func(x)(x, y)
+
+    def compute_attention(self, lstm_out, attention):
+        query_func = self._matmul_func(lstm_out)
         query = query_func(lstm_out, self._attn_w)
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
         context, score, raw_score = step_attention(query,

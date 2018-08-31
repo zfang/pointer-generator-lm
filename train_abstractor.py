@@ -46,6 +46,22 @@ class ConcatenatedDataset(CnnDmDataset):
         return [' '.join(art_sents)], [' '.join(abs_sents)]
 
 
+class MatchDataset(CnnDmDataset):
+    """ single article sentence -> single abstract sentence
+    (dataset created by greedily matching ROUGE)
+    """
+
+    def __init__(self, split):
+        super().__init__(split, DATA_DIR)
+
+    def __getitem__(self, i):
+        js_data = super().__getitem__(i)
+        art_sents, abs_sents, extracts = (
+            js_data['article'], js_data['abstract'], js_data['extracted'])
+        matched_arts = [art_sents[i] for i in extracts]
+        return matched_arts, abs_sents[:len(extracts)]
+
+
 def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     """ supports Adam optimizer only"""
     assert opt in ['adam']
@@ -175,7 +191,7 @@ def main(args):
         json.dump(meta, f, indent=4)
 
     # create data batcher, vocabulary
-    dataset = ConcatenatedDataset
+    dataset = MatchDataset if args.use_matched else ConcatenatedDataset
     train_batcher, val_batcher = build_batchers(word2id,
                                                 args.cuda,
                                                 args.debug,
@@ -259,6 +275,7 @@ if __name__ == '__main__':
     parser.add_argument('--lm-requires-grad', action='store_true')
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
+    parser.add_argument('--use-matched', action='store_true')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
