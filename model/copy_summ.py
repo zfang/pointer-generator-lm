@@ -68,16 +68,18 @@ class CopySumm(Seq2SeqSumm):
         self._attn_wq_lm = None
         self._attn_wm_lm = None
         if language_model is not None:
-            self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
-            init.xavier_normal_(self._attn_lm)
+            if language_model.allow_encode:
+                self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
+                init.xavier_normal_(self._attn_lm)
 
-            self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
-            init.xavier_normal_(self._attn_wq_lm)
+                self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+                init.xavier_normal_(self._attn_wq_lm)
 
-            self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
-            init.xavier_normal_(self._attn_wm_lm)
+                self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+                init.xavier_normal_(self._attn_wm_lm)
 
-            self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
+            if language_model.allow_decode:
+                self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
 
         self._decoder = CopyLSTMDecoder(self._copy,
                                         self._attn_wq_lm,
@@ -109,7 +111,7 @@ class CopySumm(Seq2SeqSumm):
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
 
         lm_mask, lm_logit, lm_attention = None, None, None
-        if self._language_model is not None:
+        if self._language_model is not None and self._language_model.allow_encode:
             lm_output, lm_mask, lm_logit = self._language_model(article, return_logit=compute_lm_logit)
             lm_attention = torch.matmul(lm_output, self._attn_lm)
 

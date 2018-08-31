@@ -157,6 +157,8 @@ def main(args):
             'requires_grad': args.lm_requires_grad,
             'do_layer_norm': args.lm_layer_norm,
             'dropout': args.lm_dropout,
+            'allow_encode': not args.disable_lm_encode,
+            'allow_decode': not args.disable_lm_decode,
         }
 
         id2words = {i: w for w, i in word2id.items()}
@@ -275,6 +277,8 @@ if __name__ == '__main__':
     parser.add_argument('--lm-requires-grad', action='store_true')
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
+    parser.add_argument('--disable-lm-encode', action='store_true')
+    parser.add_argument('--disable-lm-decode', action='store_true')
     parser.add_argument('--use-matched', action='store_true')
     args = parser.parse_args()
     args.bi = not args.no_bi

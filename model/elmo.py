@@ -19,7 +19,9 @@ class ElmoLM(torch.nn.Module):
                  requires_grad: bool,
                  do_layer_norm: bool,
                  dropout: float = 0,
-                 vocab_to_cache: List[str] = None) -> None:
+                 vocab_to_cache: List[str] = None,
+                 allow_encode: bool = True,
+                 allow_decode: bool = True) -> None:
         super().__init__()
 
         self._elmo = Elmo(options_file=options_file,
@@ -38,6 +40,17 @@ class ElmoLM(torch.nn.Module):
 
         for p in self._elmo._elmo_lstm._word_embedding.parameters():
             p.requires_grad = requires_grad
+
+        self._allow_encode = allow_encode
+        self._allow_decode = allow_decode
+
+    @property
+    def allow_encode(self):
+        return self._allow_encode
+
+    @property
+    def allow_decode(self):
+        return self._allow_decode
 
     def get_output_dim(self):
         return self.output_dim
