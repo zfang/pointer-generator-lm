@@ -46,15 +46,32 @@ def load_best_ckpt(model_dir, reverse=False):
         join(model_dir, 'ckpt/{}'.format(ckpts[0])),
         map_location=lambda storage, loc: storage
     )['state_dict']
-    return ckpt
+    return ckpt, ckpts[0]
+
+
+def load_last_ckpt(model_dir):
+    ckpts = os.listdir(join(model_dir, 'ckpt'))
+    ckpt_matcher = re.compile('^ckpt-.*-[0-9]*')
+    ckpts = sorted([c for c in ckpts if ckpt_matcher.match(c)],
+                   key=lambda c: float(c.split('-')[2]), reverse=True)
+    logging.info('loading checkpoint {}...'.format(ckpts[0]))
+    ckpt = torch.load(
+        join(model_dir, 'ckpt/{}'.format(ckpts[0])),
+        map_location=lambda storage, loc: storage
+    )['state_dict']
+    return ckpt, ckpts[0]
 
 
 class Abstractor(object):
-    def __init__(self, abs_dir, max_len=30, cuda=True):
+    def __init__(self, abs_dir, max_len=30, cuda=True, restore_last_model=False):
         abs_meta = json.load(open(join(abs_dir, 'meta.json')))
         assert abs_meta['net'] == 'base_abstractor'
         abs_args = abs_meta['net_args']
-        abs_ckpt = load_best_ckpt(abs_dir)
+        if restore_last_model:
+            abs_ckpt, ckpt_name = load_last_ckpt(abs_dir)
+        else:
+            abs_ckpt, ckpt_name = load_best_ckpt(abs_dir)
+
         word2id = pkl.load(open(join(abs_dir, 'vocab.pkl'), 'rb'))
 
         language_model = None
@@ -76,6 +93,7 @@ class Abstractor(object):
         self._id2word = {i: w for w, i in word2id.items()}
         self._max_len = max_len
         self._abs_meta = abs_meta
+        self._loaded_ckpt_name = ckpt_name
 
     def _prepro(self, raw_article_sents):
         ext_word2id = dict(self._word2id)

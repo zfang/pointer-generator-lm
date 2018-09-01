@@ -132,12 +132,14 @@ def main(args):
     )
 
     # make net
-    if args.restore_model:
-        abstractor = Abstractor(args.path, args.max_abs, args.cuda)
+    step = 0
+    if args.restore_model is not None:
+        abstractor = Abstractor(args.path, args.max_abs, args.cuda, restore_last_model=args.restore_model == 'last')
         word2id = abstractor._word2id
         meta = abstractor._abs_meta
         net = abstractor._net
         meta['training_params'] = train_params
+        step = int(abstractor._loaded_ckpt_name.split('-')[2])
     else:
         with open(join(DATA_DIR, 'vocab_cnt.pkl'), 'rb') as f:
             wc = pkl.load(f)
@@ -215,6 +217,7 @@ def main(args):
                              criterion(training=True), optimizer, grad_fn)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
+    trainer._step = step
 
     print('start training with the following hyper-parameters:')
     print(meta)
@@ -269,8 +272,8 @@ if __name__ == '__main__':
                         help='run in debugging mode')
     parser.add_argument('--no-cuda', action='store_true',
                         help='disable GPU training')
-    parser.add_argument('--restore-model', action='store_true',
-                        help='Restore from the best model')
+    parser.add_argument('--restore-model', default=None, choices=('best', 'last'),
+                        help='Restore from pre-trained model')
     parser.add_argument('--lm', default=None, choices=('elmo',),
                         help='Use pre-trained language model')
     parser.add_argument('--lm-coef', type=float, default=0)
