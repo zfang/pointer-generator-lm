@@ -63,8 +63,6 @@ class MatchDataset(CnnDmDataset):
 
 
 def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
-    """ supports Adam optimizer only"""
-    assert opt in ['adam']
     opt_kwargs = {'lr': lr}
 
     train_params = {
@@ -128,7 +126,7 @@ def build_batchers(word2id, cuda, debug, dataset):
 def main(args):
     # configure training setting
     criterion, train_params = configure_training(
-        'adam', args.lr, args.clip, args.decay, args.batch, args.lm_coef
+        args.optimizer, args.lr, args.clip, args.decay, args.batch, args.lm_coef
     )
 
     # make net
@@ -191,9 +189,6 @@ def main(args):
         with open(join(args.path, 'vocab.pkl'), 'wb') as f:
             pkl.dump(word2id, f, pkl.HIGHEST_PROTOCOL)
 
-    with open(join(args.path, 'meta.json'), 'w') as f:
-        json.dump(meta, f, indent=4)
-
     # create data batcher, vocabulary
     dataset = MatchDataset if args.use_matched else ConcatenatedDataset
     train_batcher, val_batcher = build_batchers(word2id,
@@ -201,17 +196,26 @@ def main(args):
                                                 args.debug,
                                                 dataset)
 
+    if args.cuda:
+        net = net.cuda()
+
     # prepare trainer
     val_fn = basic_validate(net, criterion(training=False))
     grad_fn = get_basic_grad_fn(net, args.clip)
+
     parameters_opt = filter(lambda p: p.requires_grad, net.parameters())
-    optimizer = optim.Adam(parameters_opt, **train_params['optimizer'][1])
+    if args.optimizer == 'adam':
+        optimizer = optim.Adam(parameters_opt, **train_params['optimizer'][1])
+    elif args.optimizer == 'adagrad':
+        train_params['optimizer'][1]['initial_accumulator_value'] = args.adagrad_init_acc
+        optimizer = optim.Adagrad(parameters_opt, **train_params['optimizer'][1])
+    else:
+        raise NotImplementedError(args.optimizer)
+
     scheduler = ReduceLROnPlateau(optimizer, 'min', verbose=True,
                                   factor=args.decay, min_lr=0,
                                   patience=args.lr_p)
 
-    if args.cuda:
-        net = net.cuda()
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
                              criterion(training=True), optimizer, grad_fn)
@@ -221,6 +225,9 @@ def main(args):
 
     print('start training with the following hyper-parameters:')
     print(meta)
+    with open(join(args.path, 'meta.json'), 'w') as f:
+        json.dump(meta, f, indent=4)
+
     trainer.train()
 
 
@@ -251,6 +258,8 @@ if __name__ == '__main__':
     # training options
     parser.add_argument('--lr', type=float, action='store', default=1e-3,
                         help='learning rate')
+    parser.add_argument('--adagrad_init_acc', type=float, action='store', default=0.1,
+                        help='Adagrad initial accumulator')
     parser.add_argument('--decay', type=float, action='store', default=0.5,
                         help='learning rate decay ratio')
     parser.add_argument('--lr_p', type=int, action='store', default=4,
@@ -283,6 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('--disable-lm-encode', action='store_true')
     parser.add_argument('--disable-lm-decode', action='store_true')
     parser.add_argument('--use-matched', action='store_true')
+    parser.add_argument('--optimizer', choices=('adam', 'adagrad'), default='adam')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
