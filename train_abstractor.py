@@ -7,7 +7,7 @@ import numpy as np
 import os
 import random
 import torch
-from cytoolz import compose, curry
+from cytoolz import compose
 from os.path import join, exists
 from torch import optim
 from torch.nn import functional as F
@@ -62,7 +62,7 @@ class MatchDataset(CnnDmDataset):
         return matched_arts, abs_sents[:len(extracts)]
 
 
-def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
+def configure_training(opt, lr, clip_grad, lr_decay, batch_size):
     opt_kwargs = {'lr': lr}
 
     train_params = {
@@ -75,17 +75,8 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size, lm_coef):
     def nll(logit, target):
         return F.nll_loss(logit, target, reduce=False)
 
-    @curry
-    def criterion(output, targets, training):
-        logits = output['logit']
+    def criterion(logits, targets):
         loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
-
-        lm_args = output.get('lm')
-        if training and lm_coef > 0 and lm_args is not None:
-            article, lm_output = lm_args
-            lm_loss = sequence_loss(lm_output, article, nll, pad_idx=PAD)
-            lm_loss = lm_coef * lm_loss.mean()
-            lm_loss.backward(retain_graph=True)
 
         return loss
 
@@ -126,7 +117,7 @@ def build_batchers(word2id, cuda, debug, dataset):
 def main(args):
     # configure training setting
     criterion, train_params = configure_training(
-        args.optimizer, args.lr, args.clip, args.decay, args.batch, args.lm_coef
+        args.optimizer, args.lr, args.clip, args.decay, args.batch
     )
 
     # make net
@@ -154,7 +145,6 @@ def main(args):
 
         language_model_args = {
             'type': args.lm,
-            'requires_grad': args.lm_requires_grad,
             'do_layer_norm': args.lm_layer_norm,
             'dropout': args.lm_dropout,
             'allow_encode': not args.disable_lm_encode,
@@ -200,7 +190,7 @@ def main(args):
         net = net.cuda()
 
     # prepare trainer
-    val_fn = basic_validate(net, criterion(training=False))
+    val_fn = basic_validate(net, criterion)
     grad_fn = get_basic_grad_fn(net, args.clip)
 
     parameters_opt = filter(lambda p: p.requires_grad, net.parameters())
@@ -218,7 +208,7 @@ def main(args):
 
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion(training=True), optimizer, grad_fn)
+                             criterion, optimizer, grad_fn)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
     trainer._step = step
@@ -285,8 +275,6 @@ if __name__ == '__main__':
                         help='Restore from pre-trained model')
     parser.add_argument('--lm', default=None, choices=('elmo',),
                         help='Use pre-trained language model')
-    parser.add_argument('--lm-coef', type=float, default=0)
-    parser.add_argument('--lm-requires-grad', action='store_true')
     parser.add_argument('--lm-layer-norm', action='store_true')
     parser.add_argument('--lm-dropout', type=float, default=0)
     parser.add_argument('--disable-lm-encode', action='store_true')

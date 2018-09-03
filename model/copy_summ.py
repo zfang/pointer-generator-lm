@@ -90,9 +90,7 @@ class CopySumm(Seq2SeqSumm):
                                         self._projection)
 
     def forward(self, article, art_lens, abstract, extend_art, extend_vsize):
-        attention, mask, init_dec_states, lm_attention, lm_mask, lm_logit = self.encode(article,
-                                                                                        art_lens,
-                                                                                        compute_lm_logit=True)
+        attention, mask, init_dec_states, lm_attention, lm_mask = self.encode(article, art_lens)
 
         attention_args = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
 
@@ -101,21 +99,18 @@ class CopySumm(Seq2SeqSumm):
             init_dec_states, abstract
         )
 
-        result = {'logit': logit}
-        if lm_logit is not None:
-            result['lm'] = (article, lm_logit)
-        return result
+        return logit
 
-    def encode(self, article, art_lens, compute_lm_logit=False):
+    def encode(self, article, art_lens):
         attention, init_dec_states = super().encode(article, art_lens)
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
 
         lm_mask, lm_logit, lm_attention = None, None, None
         if self._language_model is not None and self._language_model.allow_encode:
-            lm_output, lm_mask, lm_logit = self._language_model(article, return_logit=compute_lm_logit)
+            lm_output, lm_mask = self._language_model(article)
             lm_attention = torch.matmul(lm_output, self._attn_lm)
 
-        return attention, mask, init_dec_states, lm_attention, lm_mask, lm_logit
+        return attention, mask, init_dec_states, lm_attention, lm_mask
 
     def batch_decode(self, article, art_lens, extend_art, extend_vsize, go, eos, unk, max_len):
         """ greedy decode support batching"""
@@ -136,33 +131,13 @@ class CopySumm(Seq2SeqSumm):
             tok.masked_fill_(tok >= vsize, unk)
         return outputs, attns
 
-    def decode(self, article, extend_art, extend_vsize, go, eos, unk, max_len):
-        vsize = self._embedding.num_embeddings
-        attention, init_dec_states = self.encode(article)
-        attention = (attention, None, extend_art, extend_vsize)
-        tok = torch.LongTensor([go]).to(get_device())
-        outputs = []
-        attns = []
-        states = init_dec_states
-        for i in range(max_len):
-            tok, states, attn_score = self._decoder.decode_step(
-                tok, states, attention)
-            if tok[0, 0].item() == eos:
-                break
-            outputs.append(tok[0, 0].item())
-            attns.append(attn_score.squeeze(0))
-            if tok[0, 0].item() >= vsize:
-                tok[0, 0] = unk
-        return outputs, attns
-
     def batched_beamsearch(self, article, art_lens,
                            extend_art, extend_vsize,
                            go, eos, unk, max_len, beam_size, diverse=1.0):
         batch_size = len(art_lens)
         vsize = self._embedding.num_embeddings
-        attention, mask, init_dec_states, lm_attention, lm_mask, _ = self.encode(article,
-                                                                                 art_lens,
-                                                                                 compute_lm_logit=False)
+        attention, mask, init_dec_states, lm_attention, lm_mask = self.encode(article,
+                                                                              art_lens)
         all_attention = (attention, mask, extend_art, extend_vsize, lm_attention, lm_mask)
         attention = all_attention
         (h, c), prev = init_dec_states
