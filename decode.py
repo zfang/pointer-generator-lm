@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from data.batcher import tokenize
 from data.data import CnnDmDataset
 from decoding import Abstractor, BeamAbstractor, make_html_safe
-from utils import rerank_mp
+from utils import rerank_mp, count_parameters
 
 try:
     DATASET_DIR = os.environ['DATA']
@@ -90,6 +90,8 @@ def decode(save_path, model_dir, split, batch_size,
     }
     with open(join(save_path, 'log.json'), 'w') as f:
         json.dump(dec_log, f, indent=4)
+
+    print('parameters: {}'.format(count_parameters(abstractor._net)))
 
     # Decoding
     i = 0
