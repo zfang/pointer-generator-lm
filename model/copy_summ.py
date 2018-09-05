@@ -259,20 +259,18 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         (h, c), prev_out = states
 
         # lstm is not bemable
-        nl, _, _, d = h.size()
+        nl, _, _, d_h = h.size()
+        nl, _, _, d_c = c.size()
         beam, batch = tok.size()
         lstm_in_beamable = torch.cat(
             [self._embedding(tok), prev_out], dim=-1)
         lstm_in = lstm_in_beamable.contiguous().view(beam * batch, -1)
-        prev_states = (h.contiguous().view(nl, -1, d),
-                       c.contiguous().view(nl, -1, d))
+        prev_states = (h.contiguous().view(nl, -1, d_h),
+                       c.contiguous().view(nl, -1, d_c))
         h, c = self._lstm(lstm_in, prev_states)
         states = (h.contiguous().view(nl, beam, batch, -1),
                   c.contiguous().view(nl, beam, batch, -1))
         lstm_out = states[0][-1]
-
-        if len(lstm_out.shape) == 3:
-            lstm_out = lstm_out.squeeze(0)
 
         # attention is beamable
         extend_src, extend_vsize, context, score, lm_context = self.compute_attention(lstm_out=lstm_out,
