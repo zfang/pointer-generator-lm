@@ -247,7 +247,7 @@ if __name__ == '__main__':
                         help='maximun words in a single abstract sentence')
     # training options
     parser.add_argument('--lr', type=float, action='store', default=1e-3,
-                        help='learning rate')
+                        help='learning rate (please set this to 0.15 when using Adagrad)')
     parser.add_argument('--adagrad_init_acc', type=float, action='store', default=0.1,
                         help='Adagrad initial accumulator')
     parser.add_argument('--decay', type=float, action='store', default=0.5,
