@@ -91,7 +91,8 @@ def decode(save_path, model_dir, split, batch_size,
     with open(join(save_path, 'log.json'), 'w') as f:
         json.dump(dec_log, f, indent=4)
 
-    print('parameters: {}'.format(count_parameters(abstractor._net)))
+    print('trainable parameters: {}'.format(count_parameters(abstractor._net, only_trainable=True)))
+    print('total parameters: {}'.format(count_parameters(abstractor._net, only_trainable=False)))
 
     # Decoding
     i = 0

@@ -137,5 +137,5 @@ def get_elmo_lm(vocab_to_cache, args):
     return elmo
 
 
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+def count_parameters(model, only_trainable=False):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad or not only_trainable)
