@@ -135,13 +135,13 @@ if __name__ == '__main__':
     data.add_argument('--test', action='store_true', help='use test set')
 
     # decode options
-    parser.add_argument('--batch', type=int, action='store', default=8,
+    parser.add_argument('--batch', type=int, action='store', default=16,
                         help='batch size of faster decoding')
     parser.add_argument('--beam', type=int, action='store', default=4,
                         help='beam size for beam-search (reranking included)')
     parser.add_argument('--div', type=float, action='store', default=0,
                         help='diverse ratio for the diverse beam-search')
-    parser.add_argument('--max_dec_word', type=int, action='store', default=100,
+    parser.add_argument('--max_dec_word', type=int, action='store', default=120,
                         help='maximun words to be decoded for the abstractor')
 
     parser.add_argument('--no-cuda', action='store_true',
