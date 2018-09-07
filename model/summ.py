@@ -10,16 +10,12 @@ from .util import sequence_mean, len_mask
 INIT = 1e-2
 
 
-class Seq2SeqSumm(nn.Module):
-    def __init__(self, vocab_size, emb_dim,
-                 n_hidden, bidirectional, n_layer, dropout=0.0):
+class Seq2SeqEncoder(nn.Module):
+    def __init__(self, embedding, n_hidden, bidirectional, n_layer, dropout):
         super().__init__()
-        # embedding weight parameter is shared between encoder, decoder,
-        # and used as final projection layer to vocab logit
-        # can initialize with pretrained word vectors
-        self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+        self._embedding = embedding
         self._enc_lstm = nn.LSTM(
-            emb_dim, n_hidden, n_layer,
+            self._embedding.embedding_dim, n_hidden, n_layer,
             bidirectional=bidirectional, dropout=dropout
         )
         # initial encoder LSTM states are learned parameters
@@ -33,39 +29,7 @@ class Seq2SeqSumm(nn.Module):
         init.uniform_(self._init_enc_h, -INIT, INIT)
         init.uniform_(self._init_enc_c, -INIT, INIT)
 
-        # vanilla lstm / LNlstm
-        self._dec_lstm = MultiLayerLSTMCells(
-            2 * emb_dim, n_hidden, n_layer, dropout=dropout
-        )
-        # project encoder final states to decoder initial states
-        enc_out_dim = n_hidden * (2 if bidirectional else 1)
-        self._dec_h = nn.Linear(enc_out_dim, n_hidden, bias=False)
-        self._dec_c = nn.Linear(enc_out_dim, n_hidden, bias=False)
-        # multiplicative attention
-        self._attn_wm = nn.Parameter(torch.Tensor(enc_out_dim, n_hidden))
-        self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
-        init.xavier_normal_(self._attn_wm)
-        init.xavier_normal_(self._attn_wq)
-        # project decoder output to emb_dim, then
-        # apply weight matrix from embedding layer
-        self._projection = nn.Sequential(
-            nn.Linear(2 * n_hidden, n_hidden),
-            nn.Tanh(),
-            nn.Linear(n_hidden, emb_dim, bias=False)
-        )
-        # functional object for easier usage
-        self._decoder = AttentionalLSTMDecoder(
-            self._embedding, self._dec_lstm,
-            self._attn_wq, self._projection
-        )
-
-    def forward(self, article, art_lens, abstract):
-        attention, init_dec_states = self.encode(article, art_lens)
-        mask = len_mask(art_lens, attention.get_device()).unsqueeze(-2)
-        logit = self._decoder((attention, mask), init_dec_states, abstract)
-        return logit
-
-    def encode(self, article, art_lens=None):
+    def forward(self, article, art_lens=None):
         size = (
             self._init_enc_h.size(0),
             len(art_lens) if art_lens is not None else 1,
@@ -79,12 +43,62 @@ class Seq2SeqSumm(nn.Module):
             article, self._enc_lstm, art_lens,
             init_enc_states, self._embedding
         )
+
         if self._enc_lstm.bidirectional:
             h, c = final_states
             final_states = (
                 torch.cat(h.chunk(2, dim=0), dim=2),
                 torch.cat(c.chunk(2, dim=0), dim=2)
             )
+
+        return enc_art, final_states
+
+
+class Seq2SeqSumm(nn.Module):
+    def __init__(self, vocab_size, emb_dim,
+                 n_hidden, bidirectional, n_layer, dropout=0.0):
+        super().__init__()
+        # embedding weight parameter is shared between encoder, decoder,
+        # and used as final projection layer to vocab logit
+        # can initialize with pretrained word vectors
+        self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+        self._encoder = Seq2SeqEncoder(self._embedding, n_hidden, bidirectional, n_layer, dropout)
+
+        # vanilla lstm / LNlstm
+        self._dec_lstm = MultiLayerLSTMCells(
+            2 * emb_dim, n_hidden, n_layer, dropout=dropout
+        )
+        # project encoder final states to decoder initial states
+        enc_out_dim = n_hidden * (2 if bidirectional else 1)
+        self._dec_h = nn.Linear(enc_out_dim, n_hidden, bias=False)
+        self._dec_c = nn.Linear(enc_out_dim, n_hidden, bias=False)
+        # multiplicative attention
+        self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+        self._attn_wm = nn.Parameter(torch.Tensor(enc_out_dim, n_hidden))
+        init.xavier_normal_(self._attn_wq)
+        init.xavier_normal_(self._attn_wm)
+
+        # project decoder output to emb_dim, then
+        # apply weight matrix from embedding layer
+        self._projection = nn.Sequential(
+            nn.Linear(2 * n_hidden, n_hidden),
+            nn.Tanh(),
+            nn.Linear(n_hidden, emb_dim, bias=False)
+        )
+
+        # functional object for easier usage
+        self._decoder = AttentionalLSTMDecoder(
+            self._embedding, self._dec_lstm,
+            self._attn_wq, self._projection
+        )
+
+    def forward(self, article, art_lens, abstract):
+        attention, init_dec_states = self.encode(article, art_lens)
+        mask = len_mask(art_lens, attention.get_device()).unsqueeze(-2)
+        return self._decoder((attention, mask), init_dec_states, abstract)
+
+    def encode(self, article, art_lens=None):
+        enc_art, final_states = self._encoder(article, art_lens)
         init_h = torch.stack([self._dec_h(s)
                               for s in final_states[0]], dim=0)
         init_c = torch.stack([self._dec_c(s)

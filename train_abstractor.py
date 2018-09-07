@@ -10,7 +10,7 @@ import torch
 from cytoolz import compose
 from os.path import join, exists
 from torch import optim
-from torch.nn import functional as F, DataParallel
+from torch.nn import functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
@@ -139,6 +139,7 @@ def main(args):
             'bidirectional': args.bi,
             'n_layer': args.n_layer,
             'dropout': args.dropout,
+            'parallel': args.parallel,
         }
 
         language_model_args = {
@@ -207,7 +208,7 @@ def main(args):
 
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion, optimizer, grad_fn, args.parallel)
+                             criterion, optimizer, grad_fn)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
     trainer._step = step

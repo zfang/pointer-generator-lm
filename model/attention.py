@@ -28,7 +28,7 @@ def step_attention_score(query, key, mem_mask=None):
 
 def step_attention(query, key, value, mem_mask=None, return_raw_score=False):
     """ query[(Bs), B, D], key[B, T, D], value[B, T, D]"""
-    norm_score, score = step_attention_score(query, key, mem_mask=mem_mask, squeeze=False)
+    norm_score, score = step_attention_score(query, key, mem_mask=mem_mask)
     output = attention_aggregate(value, norm_score)
     if return_raw_score:
         return output.squeeze(-2), norm_score.squeeze(-2), score.squeeze(-2)

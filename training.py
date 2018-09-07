@@ -8,7 +8,6 @@ import tensorboardX
 import torch
 from cytoolz import curry, reduce
 from os.path import join
-from torch.nn.parallel import data_parallel
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -64,7 +63,7 @@ def basic_validate(net, criterion, val_batches):
 class BasicPipeline(object):
     def __init__(self, name, net,
                  train_batcher, val_batcher, batch_size,
-                 val_fn, criterion, optim, grad_fn=None, parallel=False):
+                 val_fn, criterion, optim, grad_fn=None):
         self.name = name
         self._net = net
         self._train_batcher = train_batcher
@@ -75,7 +74,6 @@ class BasicPipeline(object):
         # it should return a dictionary of logging values
         self._grad_fn = grad_fn
         self._val_fn = val_fn
-        self._parallel = parallel
 
         self._n_epoch = 0  # epoch not very useful?
         self._batch_size = batch_size
@@ -99,10 +97,7 @@ class BasicPipeline(object):
         # forward pass of model
         self._net.train()
         fw_args, bw_args = next(self._batches)
-        if self._parallel:
-            net_out = data_parallel(self._net, fw_args)
-        else:
-            net_out = self._net(*fw_args)
+        net_out = self._net(*fw_args)
 
         # get logs and output for logging, backward
         log_dict = {}
