@@ -16,12 +16,19 @@ def attention_aggregate(value, score):
     return output
 
 
-def step_attention(query, key, value, mem_mask=None, return_raw_score=False):
+def step_attention_score(query, key, mem_mask=None):
     """ query[(Bs), B, D], key[B, T, D], value[B, T, D]"""
     score = dot_attention_score(key, query.unsqueeze(-2))
     if mem_mask is None:
         score = score.masked_fill(mem_mask == 0, -1e18)
     norm_score = F.softmax(score, dim=-1)
+
+    return norm_score, score
+
+
+def step_attention(query, key, value, mem_mask=None, return_raw_score=False):
+    """ query[(Bs), B, D], key[B, T, D], value[B, T, D]"""
+    norm_score, score = step_attention_score(query, key, mem_mask=mem_mask, squeeze=False)
     output = attention_aggregate(value, norm_score)
     if return_raw_score:
         return output.squeeze(-2), norm_score.squeeze(-2), score.squeeze(-2)

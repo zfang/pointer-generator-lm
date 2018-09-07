@@ -26,10 +26,10 @@ def len_mask(lens, device):
 
 
 def sequence_mean(sequence, seq_lens, dim=1):
-    if seq_lens:
+    if seq_lens is not None:
         assert sequence.size(0) == len(seq_lens)  # batch_size
         sum_ = torch.sum(sequence, dim=dim, keepdim=False)
-        mean = torch.stack([s / l for s, l in zip(sum_, seq_lens)], dim=0)
+        mean = torch.stack([s / l for s, l in zip(sum_, seq_lens.float())], dim=0)
     else:
         mean = torch.mean(sequence, dim=dim, keepdim=False)
     return mean
@@ -44,7 +44,7 @@ def sequence_loss(logits, targets, xent_fn=None, pad_idx=0):
     logit = logits.masked_select(
         mask.unsqueeze(2).expand_as(logits)
     ).contiguous().view(-1, logits.size(-1))
-    if xent_fn:
+    if xent_fn is not None:
         loss = xent_fn(logit, target)
     else:
         loss = F.cross_entropy(logit, target)
@@ -63,7 +63,7 @@ def reorder_sequence(sequence_emb, order, batch_first=False):
     batch_dim = 0 if batch_first else 1
     assert len(order) == sequence_emb.size()[batch_dim]
 
-    order = torch.LongTensor(order).to(get_device())
+    order = torch.LongTensor(order).to(sequence_emb.device)
     sorted_ = sequence_emb.index_select(index=order, dim=batch_dim)
 
     return sorted_
@@ -79,7 +79,7 @@ def reorder_lstm_states(lstm_states, order):
     assert lstm_states[0].size() == lstm_states[1].size()
     assert len(order) == lstm_states[0].size()[1]
 
-    order = torch.LongTensor(order).to(get_device())
+    order = torch.LongTensor(order).to(lstm_states[0].device)
     sorted_states = (lstm_states[0].index_select(index=order, dim=1),
                      lstm_states[1].index_select(index=order, dim=1))
 

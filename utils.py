@@ -13,7 +13,7 @@ from os.path import basename
 from torch import multiprocessing as mp
 from torch import nn
 
-from model.elmo import ElmoLM
+from model.language_model import ElmoLM
 
 PAD = 0
 UNK = 1

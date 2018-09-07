@@ -68,7 +68,7 @@ class Seq2SeqSumm(nn.Module):
     def encode(self, article, art_lens=None):
         size = (
             self._init_enc_h.size(0),
-            len(art_lens) if art_lens else 1,
+            len(art_lens) if art_lens is not None else 1,
             self._init_enc_h.size(1)
         )
         init_enc_states = (

@@ -15,7 +15,7 @@ def lstm_encoder(sequence, lstm,
         sequence = sequence.transpose(0, 1)
         emb_sequence = (embedding(sequence) if embedding is not None
                         else sequence)
-    if seq_lens:
+    if seq_lens is not None:
         assert batch_size == len(seq_lens)
         sort_ind = sorted(range(len(seq_lens)),
                           key=lambda i: seq_lens[i], reverse=True)
@@ -33,6 +33,7 @@ def lstm_encoder(sequence, lstm,
     if seq_lens:
         packed_seq = nn.utils.rnn.pack_padded_sequence(emb_sequence,
                                                        seq_lens)
+        lstm.flatten_parameters()
         packed_out, final_states = lstm(packed_seq, init_states)
         lstm_out, _ = nn.utils.rnn.pad_packed_sequence(packed_out)
 

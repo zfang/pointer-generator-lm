@@ -10,7 +10,7 @@ import torch
 from cytoolz import compose
 from os.path import join, exists
 from torch import optim
-from torch.nn import functional as F
+from torch.nn import functional as F, DataParallel
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
@@ -76,9 +76,7 @@ def configure_training(opt, lr, clip_grad, lr_decay, batch_size):
         return F.nll_loss(logit, target, reduce=False)
 
     def criterion(logits, targets):
-        loss = sequence_loss(logits, targets, nll, pad_idx=PAD)
-
-        return loss
+        return sequence_loss(logits, targets, nll, pad_idx=PAD)
 
     return criterion, train_params
 
@@ -149,6 +147,7 @@ def main(args):
             'dropout': args.lm_dropout,
             'allow_encode': not args.disable_lm_encode,
             'allow_decode': not args.disable_lm_decode,
+            'attention': args.lm_attention,
         }
 
         id2words = {i: w for w, i in word2id.items()}
@@ -208,7 +207,7 @@ def main(args):
 
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion, optimizer, grad_fn)
+                             criterion, optimizer, grad_fn, args.parallel)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
     trainer._step = step
@@ -281,9 +280,12 @@ if __name__ == '__main__':
     parser.add_argument('--disable-lm-decode', action='store_true')
     parser.add_argument('--use-matched', action='store_true')
     parser.add_argument('--optimizer', choices=('adam', 'adagrad'), default='adam')
+    parser.add_argument('--lm-attention', choices=('multi-head', 'modulation'), default='multi-head')
+    parser.add_argument('--parallel', action='store_true')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda
+    args.parallel = args.parallel and args.cuda
 
     random.seed(args.seed)
     np.random.seed(args.seed)

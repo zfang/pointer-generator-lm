@@ -4,7 +4,7 @@ from torch.nn import functional as F
 from torch.nn import init
 
 from model import beam_search as bs
-from model.attention import step_attention
+from model.attention import step_attention, step_attention_score, attention_aggregate
 from model.summ import Seq2SeqSumm, AttentionalLSTMDecoder
 from model.util import len_mask, get_device
 
@@ -32,11 +32,15 @@ class _CopyLinear(nn.Module):
             self.regiser_module(None, '_b')
 
     def forward(self, context, state, input_, lm_context=None):
+        context = context.to(self._v_c.device)
+        state = state.to(self._v_s.device)
+        input_ = input_.to(self._v_i.device)
         output = (torch.matmul(context, self._v_c.unsqueeze(1))
                   + torch.matmul(state, self._v_s.unsqueeze(1))
                   + torch.matmul(input_, self._v_i.unsqueeze(1)))
 
         if lm_context is not None and self._v_l is not None:
+            lm_context = lm_context.to(self._v_l.device)
             output += torch.matmul(lm_context, self._v_l.unsqueeze(1))
 
         if self._b is not None:
@@ -75,8 +79,9 @@ class CopySumm(Seq2SeqSumm):
                 self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
                 init.xavier_normal_(self._attn_wq_lm)
 
-                self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
-                init.xavier_normal_(self._attn_wm_lm)
+                if language_model.attention == 'multi-head':
+                    self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+                    init.xavier_normal_(self._attn_wm_lm)
 
             if language_model.allow_decode:
                 self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
@@ -106,7 +111,7 @@ class CopySumm(Seq2SeqSumm):
         mask = len_mask(art_lens, get_device()).unsqueeze(-2)
 
         lm_mask, lm_logit, lm_attention = None, None, None
-        if self._language_model is not None and self._language_model.allow_encode:
+        if self._language_model is not None and self._attn_lm is not None:
             lm_output, lm_mask = self._language_model(article)
             lm_attention = torch.matmul(lm_output, self._attn_lm)
 
@@ -221,10 +226,17 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
 
     def _step(self, tok, states, attention):
         prev_states, prev_out = states
+
+        tok = tok.to(self._embedding.weight.device)
         lstm_in = torch.cat(
             [self._embedding(tok).squeeze(1), prev_out],
             dim=1
         )
+
+        lstm_parameter_device = next(self._lstm.parameters()).device
+        lstm_in = lstm_in.to(lstm_parameter_device)
+        prev_states = (prev_states[0].to(lstm_parameter_device), prev_states[1].to(lstm_parameter_device))
+
         states = self._lstm(lstm_in, prev_states)
         lstm_out = states[0][-1]
 
@@ -245,6 +257,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         # compute the probabilty of each copying
         copy_prob = torch.sigmoid(self._copy(context, lstm_out, lstm_in, lm_context))
         # add the copy prob to existing vocab distribution
+        score = score.to(copy_prob.device)
+        extend_src = extend_src.to(copy_prob.device)
         lp = torch.log(
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
@@ -262,12 +276,20 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         nl, _, _, d_h = h.size()
         nl, _, _, d_c = c.size()
         beam, batch = tok.size()
+
+        tok = tok.to(self._embedding.weight.device)
         lstm_in_beamable = torch.cat(
             [self._embedding(tok), prev_out], dim=-1)
+
         lstm_in = lstm_in_beamable.contiguous().view(beam * batch, -1)
         prev_states = (h.contiguous().view(nl, -1, d_h),
                        c.contiguous().view(nl, -1, d_c))
+
+        lstm_parameter_device = next(self._lstm.parameters()).device
+        lstm_in = lstm_in.to(lstm_parameter_device)
+        prev_states = (prev_states[0].to(lstm_parameter_device), prev_states[1].to(lstm_parameter_device))
         h, c = self._lstm(lstm_in, prev_states)
+
         states = (h.contiguous().view(nl, beam, batch, -1),
                   c.contiguous().view(nl, beam, batch, -1))
         lstm_out = states[0][-1]
@@ -288,6 +310,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         copy_prob = torch.sigmoid(
             self._copy(context, lstm_out, lstm_in_beamable, lm_context)
         ).contiguous().view(-1, 1)
+        score = score.to(copy_prob.device)
+        extend_src = extend_src.to(copy_prob.device)
         lp = torch.log(
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
@@ -334,9 +358,13 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         return self._matmul_func(x)(x, y)
 
     def compute_attention(self, lstm_out, attention):
+        if self._attn_wm_lm is None:
+            return self.compute_modulated_attention(lstm_out, attention)
+
         query_func = self._matmul_func(lstm_out)
-        query = query_func(lstm_out, self._attn_w)
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
+
+        query = query_func(lstm_out, self._attn_w).to(attention.device)
         context, score, raw_score = step_attention(query,
                                                    attention,
                                                    attention,
@@ -345,7 +373,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
 
         lm_context = None
         if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm)):
-            lm_query = query_func(lstm_out, self._attn_wq_lm)
+            lm_query = query_func(lstm_out, self._attn_wq_lm).to(lm_attention.device)
             lm_context, _, lm_raw_score = step_attention(lm_query,
                                                          lm_attention,
                                                          lm_attention,
@@ -354,3 +382,23 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
             score = F.softmax(raw_score + lm_raw_score, dim=-1)
 
         return extend_src, extend_vsize, context, score, lm_context
+
+    def compute_modulated_attention(self, lstm_out, attention):
+        query_func = self._matmul_func(lstm_out)
+        attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
+
+        query = query_func(lstm_out, self._attn_w).to(attention.device)
+        score, _ = step_attention_score(query,
+                                        attention,
+                                        attn_mask)
+
+        if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm)):
+            lm_query = query_func(lstm_out, self._attn_wq_lm).to(lm_attention.device)
+            lm_score, _ = step_attention_score(lm_query,
+                                               lm_attention,
+                                               lm_mask)
+            score = F.normalize(score * lm_score, p=1, dim=-1)
+
+        context = attention_aggregate(attention, score)
+
+        return extend_src, extend_vsize, context.squeeze(-2), score.squeeze(-2), None

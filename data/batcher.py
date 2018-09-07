@@ -89,7 +89,9 @@ def pad_batch_tensorize(inputs, pad, cuda=True):
 def batchify_fn_copy(pad, start, end, data, cuda=True):
     sources, ext_srcs, tar_ins, targets = tuple(map(list, unzip(data)))
 
-    src_lens = [len(src) for src in sources]
+    tensor_type = torch.cuda.LongTensor if cuda else torch.LongTensor
+    src_lens = tensor_type([len(src) for src in sources])
+
     sources = [src for src in sources]
     ext_srcs = [ext for ext in ext_srcs]
 

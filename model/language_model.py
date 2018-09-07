@@ -8,7 +8,30 @@ from allennlp.modules.lstm_cell_with_projection import LstmCellWithProjection
 from model.rnn import StackedLSTMCells
 
 
-class ElmoLM(torch.nn.Module):
+class LanguageModel(torch.nn.Module):
+    def __init__(self,
+                 attention: str,
+                 allow_encode: bool = True,
+                 allow_decode: bool = True) -> None:
+        super().__init__()
+        self._attention = attention
+        self._allow_encode = allow_encode
+        self._allow_decode = allow_decode
+
+    @property
+    def attention(self):
+        return self._attention
+
+    @property
+    def allow_encode(self):
+        return self._allow_encode
+
+    @property
+    def allow_decode(self):
+        return self._allow_decode
+
+
+class ElmoLM(LanguageModel):
     """
     Compute a single layer of ELMo word representations.
     """
@@ -19,9 +42,8 @@ class ElmoLM(torch.nn.Module):
                  do_layer_norm: bool,
                  dropout: float = 0,
                  vocab_to_cache: List[str] = None,
-                 allow_encode: bool = True,
-                 allow_decode: bool = True) -> None:
-        super().__init__()
+                 **kwargs) -> None:
+        super().__init__(**kwargs)
 
         self._elmo = Elmo(options_file=options_file,
                           weight_file=weight_file,
@@ -33,17 +55,6 @@ class ElmoLM(torch.nn.Module):
 
         self.output_dim = self._elmo.get_output_dim()
         del self._elmo._elmo_lstm._token_embedder
-
-        self._allow_encode = allow_encode
-        self._allow_decode = allow_decode
-
-    @property
-    def allow_encode(self):
-        return self._allow_encode
-
-    @property
-    def allow_decode(self):
-        return self._allow_decode
 
     def get_output_dim(self):
         return self.output_dim
@@ -83,7 +94,7 @@ class ElmoLstmCell(torch.nn.Module):
 
             states = (state, memory)
 
-        return self.cell(input_.unsqueeze(dim=-2), [1] * input_.size(0), states)[1]
+        return self.cell(input_.unsqueeze(dim=-2), input_.new([1] * input_.size(0)).long(), states)[1]
 
 
 class MultiLayerElmoLstmCells(StackedLSTMCells):
