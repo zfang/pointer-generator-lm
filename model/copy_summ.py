@@ -5,7 +5,6 @@ from torch.nn import init
 
 from model import beam_search as bs
 from model.attention import step_attention, step_attention_score, attention_aggregate
-from model.parallel import DataParallel
 from model.summ import Seq2SeqSumm, AttentionalLSTMDecoder
 from model.util import len_mask, get_device
 
@@ -57,8 +56,7 @@ class CopySumm(Seq2SeqSumm):
                  bidirectional,
                  n_layer,
                  dropout=0.0,
-                 language_model=None,
-                 parallel=False):
+                 language_model=None):
         super().__init__(vocab_size,
                          emb_dim,
                          n_hidden,
@@ -87,15 +85,6 @@ class CopySumm(Seq2SeqSumm):
 
             if language_model.allow_decode:
                 self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
-
-        if parallel:
-            # self._encoder = DataParallel(self._encoder)
-            # self._dec_lstm = DataParallel(self._dec_lstm)
-            self._embedding = DataParallel(self._embedding)
-            self._projection = DataParallel(self._projection)
-
-            if self._language_model:
-                self._language_model = DataParallel(self._language_model)
 
         self._decoder = CopyLSTMDecoder(self._copy,
                                         self._attn_wq_lm,

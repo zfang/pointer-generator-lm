@@ -139,7 +139,6 @@ def main(args):
             'bidirectional': args.bi,
             'n_layer': args.n_layer,
             'dropout': args.dropout,
-            'parallel': args.parallel,
         }
 
         language_model_args = {
@@ -208,7 +207,7 @@ def main(args):
 
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion, optimizer, grad_fn)
+                             criterion, optimizer, grad_fn, args.parallel)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
     trainer._step = step
