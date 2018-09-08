@@ -116,7 +116,7 @@ class Seq2SeqSumm(nn.Module):
         attention, init_dec_states = self.encode(article, art_lens)
         mask = len_mask(art_lens, article.device).unsqueeze(-2)
         attention = (attention, mask)
-        tok = torch.LongTensor([go] * batch_size).to(article.get_device())
+        tok = torch.LongTensor([go] * batch_size).to(article.device)
         outputs = []
         attns = []
         states = init_dec_states
@@ -130,7 +130,7 @@ class Seq2SeqSumm(nn.Module):
     def decode(self, article, go, eos, max_len):
         attention, init_dec_states = self.encode(article)
         attention = (attention, None)
-        tok = torch.LongTensor([go]).to(article.get_device())
+        tok = torch.LongTensor([go]).to(article.device)
         outputs = []
         attns = []
         states = init_dec_states
@@ -149,7 +149,7 @@ class Seq2SeqSumm(nn.Module):
         self._embedding.weight.data.copy_(embedding)
 
 
-class AttentionalLSTMDecoder(object):
+class AttentionalLSTMDecoder(nn.Module):
     def __init__(self, embedding, lstm, attn_w, projection):
         super().__init__()
         self._embedding = embedding
@@ -157,7 +157,7 @@ class AttentionalLSTMDecoder(object):
         self._attn_w = attn_w
         self._projection = projection
 
-    def __call__(self, attention, init_states, target):
+    def forward(self, attention, init_states, target):
         max_len = target.size(1)
         states = init_states
         logits = []

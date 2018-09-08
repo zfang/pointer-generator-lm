@@ -32,15 +32,11 @@ class _CopyLinear(nn.Module):
             self.regiser_module(None, '_b')
 
     def forward(self, context, state, input_, lm_context=None):
-        context = context.to(self._v_c.device)
-        state = state.to(self._v_s.device)
-        input_ = input_.to(self._v_i.device)
         output = (torch.matmul(context, self._v_c.unsqueeze(1))
                   + torch.matmul(state, self._v_s.unsqueeze(1))
                   + torch.matmul(input_, self._v_i.unsqueeze(1)))
 
         if lm_context is not None and self._v_l is not None:
-            lm_context = lm_context.to(self._v_l.device)
             output += torch.matmul(lm_context, self._v_l.unsqueeze(1))
 
         if self._b is not None:
@@ -227,16 +223,10 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
     def _step(self, tok, states, attention):
         prev_states, prev_out = states
 
-        embedding_parameter_device = next(self._embedding.parameters()).device
-        tok = tok.to(embedding_parameter_device)
         lstm_in = torch.cat(
             [self._embedding(tok).squeeze(1), prev_out],
             dim=1
         )
-
-        lstm_parameter_device = next(self._lstm.parameters()).device
-        lstm_in = lstm_in.to(lstm_parameter_device)
-        prev_states = (prev_states[0].to(lstm_parameter_device), prev_states[1].to(lstm_parameter_device))
 
         states = self._lstm(lstm_in, prev_states)
         lstm_out = states[0][-1]
@@ -248,8 +238,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
-            context = context.to(self._attn_wm_lm.device)
-            lm_context = lm_context.to(self._attn_wm_lm.device)
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
@@ -260,8 +248,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         # compute the probabilty of each copying
         copy_prob = torch.sigmoid(self._copy(context, lstm_out, lstm_in, lm_context))
         # add the copy prob to existing vocab distribution
-        score = score.to(copy_prob.device)
-        extend_src = extend_src.to(copy_prob.device)
         lp = torch.log(
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
@@ -280,8 +266,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         nl, _, _, d_c = c.size()
         beam, batch = tok.size()
 
-        embedding_parameter_device = next(self._embedding.parameters()).device
-        tok = tok.to(embedding_parameter_device)
         lstm_in_beamable = torch.cat(
             [self._embedding(tok), prev_out], dim=-1)
 
@@ -289,9 +273,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         prev_states = (h.contiguous().view(nl, -1, d_h),
                        c.contiguous().view(nl, -1, d_c))
 
-        lstm_parameter_device = next(self._lstm.parameters()).device
-        lstm_in = lstm_in.to(lstm_parameter_device)
-        prev_states = (prev_states[0].to(lstm_parameter_device), prev_states[1].to(lstm_parameter_device))
         h, c = self._lstm(lstm_in, prev_states)
 
         states = (h.contiguous().view(nl, beam, batch, -1),
@@ -303,8 +284,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
-            context = context.to(self._attn_wm_lm.device)
-            lm_context = lm_context.to(self._attn_wm_lm.device)
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
@@ -316,8 +295,6 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         copy_prob = torch.sigmoid(
             self._copy(context, lstm_out, lstm_in_beamable, lm_context)
         ).contiguous().view(-1, 1)
-        score = score.to(copy_prob.device)
-        extend_src = extend_src.to(copy_prob.device)
         lp = torch.log(
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
@@ -394,14 +371,12 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
 
         query = query_func(lstm_out, self._attn_w)
-        query = query.to(attention.device)
         score, _ = step_attention_score(query,
                                         attention,
                                         attn_mask)
 
         if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm)):
             lm_query = query_func(lstm_out, self._attn_wq_lm)
-            lm_query = lm_query.to(lm_attention.device)
             lm_score, _ = step_attention_score(lm_query,
                                                lm_attention,
                                                lm_mask)
