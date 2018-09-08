@@ -6,7 +6,7 @@ from torch.nn import init
 from model import beam_search as bs
 from model.attention import step_attention, step_attention_score, attention_aggregate
 from model.summ import Seq2SeqSumm, AttentionalLSTMDecoder
-from model.util import len_mask, get_device
+from model.util import len_mask
 
 INIT = 1e-2
 
@@ -108,7 +108,7 @@ class CopySumm(Seq2SeqSumm):
 
     def encode(self, article, art_lens):
         attention, init_dec_states = super().encode(article, art_lens)
-        mask = len_mask(art_lens, get_device()).unsqueeze(-2)
+        mask = len_mask(art_lens, article.device).unsqueeze(-2)
 
         lm_mask, lm_logit, lm_attention = None, None, None
         if self._language_model is not None and self._attn_lm is not None:
@@ -122,9 +122,9 @@ class CopySumm(Seq2SeqSumm):
         batch_size = len(art_lens)
         vsize = self._embedding.num_embeddings
         attention, init_dec_states = self.encode(article, art_lens)
-        mask = len_mask(art_lens, get_device()).unsqueeze(-2)
+        mask = len_mask(art_lens, article.device).unsqueeze(-2)
         attention = (attention, mask, extend_art, extend_vsize)
-        tok = torch.LongTensor([go] * batch_size).to(get_device())
+        tok = torch.LongTensor([go] * batch_size).to(article.device)
         outputs = []
         attns = []
         states = init_dec_states
@@ -154,7 +154,7 @@ class CopySumm(Seq2SeqSumm):
             toks = []
             all_states = []
             for beam in filter(bool, all_beams):
-                token, states = bs.pack_beam(beam, get_device())
+                token, states = bs.pack_beam(beam, article.device)
                 toks.append(token)
                 all_states.append(states)
             token = torch.stack(toks, dim=1)
@@ -188,7 +188,7 @@ class CopySumm(Seq2SeqSumm):
                     attention, mask, extend_art, extend_vsize, lm_attention, lm_mask = all_attention
                     masks = [mask[j] for j, o in enumerate(outputs) if o is None]
                     ind = [j for j, o in enumerate(outputs) if o is None]
-                    ind = torch.LongTensor(ind).to(get_device())
+                    ind = torch.LongTensor(ind).to(attention.device)
                     if lm_attention is not None:
                         attention, extend_art, lm_attention = map(
                             lambda v: v.index_select(dim=0, index=ind),
@@ -248,6 +248,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
+            context = context.to(self._attn_wm_lm.device)
+            lm_context = lm_context.to(self._attn_wm_lm.device)
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
@@ -301,6 +303,8 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                                                       attention=attention)
 
         if lm_context is not None and self._attn_wm_lm is not None:
+            context = context.to(self._attn_wm_lm.device)
+            lm_context = lm_context.to(self._attn_wm_lm.device)
             projection_context = torch.matmul(torch.cat([context, lm_context], dim=-1), self._attn_wm_lm)
         else:
             projection_context = context
@@ -337,7 +341,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         bsize, vsize = logit.size()
         if extend_vsize > vsize:
             ext_logit = torch.Tensor(bsize, extend_vsize - vsize
-                                     ).to(get_device())
+                                     ).to(dec_out.device)
             ext_logit.fill_(eps)
             gen_logit = torch.cat([logit, ext_logit], dim=1)
         else:
@@ -389,13 +393,15 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         query_func = self._matmul_func(lstm_out)
         attention, attn_mask, extend_src, extend_vsize, lm_attention, lm_mask = attention
 
-        query = query_func(lstm_out, self._attn_w).to(attention.device)
+        query = query_func(lstm_out, self._attn_w)
+        query = query.to(attention.device)
         score, _ = step_attention_score(query,
                                         attention,
                                         attn_mask)
 
         if all(x is not None for x in (lm_attention, lm_mask, self._attn_wq_lm)):
-            lm_query = query_func(lstm_out, self._attn_wq_lm).to(lm_attention.device)
+            lm_query = query_func(lstm_out, self._attn_wq_lm)
+            lm_query = lm_query.to(lm_attention.device)
             lm_score, _ = step_attention_score(lm_query,
                                                lm_attention,
                                                lm_mask)

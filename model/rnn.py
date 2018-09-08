@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn import init
 
-from .util import reorder_sequence, reorder_lstm_states, get_device
+from .util import reorder_sequence, reorder_lstm_states
 
 
 def lstm_encoder(sequence, lstm,
@@ -24,8 +24,7 @@ def lstm_encoder(sequence, lstm,
                                         lstm.batch_first)
 
     if init_states is None:
-        device = get_device()
-        init_states = init_lstm_states(lstm, batch_size, device)
+        init_states = init_lstm_states(lstm, batch_size, sequence.device)
     else:
         init_states = (init_states[0].contiguous(),
                        init_states[1].contiguous())

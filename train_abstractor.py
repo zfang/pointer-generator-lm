@@ -10,7 +10,7 @@ import torch
 from cytoolz import compose
 from os.path import join, exists
 from torch import optim
-from torch.nn import functional as F
+from torch.nn import functional as F, DataParallel
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
@@ -163,6 +163,7 @@ def main(args):
             'net_args': net_args,
             'training_params': train_params,
             'language_model': language_model_args,
+            'parallel': args.parallel,
         }
 
         if args.w2v:
@@ -171,6 +172,9 @@ def main(args):
             embedding, _ = make_embedding(
                 id2words, args.w2v)
             net.set_embedding(embedding)
+
+        if args.parallel:
+            net = DataParallel(net)
 
         # save experiment setting
         if not exists(args.path):
@@ -207,7 +211,7 @@ def main(args):
 
     pipeline = BasicPipeline(meta['net'], net,
                              train_batcher, val_batcher, args.batch, val_fn,
-                             criterion, optimizer, grad_fn, args.parallel)
+                             criterion, optimizer, grad_fn)
     trainer = BasicTrainer(pipeline, args.path,
                            args.ckpt_freq, args.patience, scheduler)
     trainer._step = step

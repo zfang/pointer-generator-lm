@@ -4,13 +4,6 @@ import torch
 from torch.nn import functional as F
 
 
-def get_device():
-    if torch.cuda.is_available():
-        return torch.device('cuda')
-    else:
-        return torch.device('cpu')
-
-
 #################### general sequence helper #########################
 def len_mask(lens, device):
     """ users are resposible for shaping
