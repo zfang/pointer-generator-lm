@@ -374,7 +374,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
             lm_score, _ = step_attention_score(lm_query,
                                                lm_attention,
                                                lm_mask)
-            score = F.normalize(score * lm_score[:, :score.size(-1)], p=1, dim=-1)
+            score = F.normalize(score * lm_score[:, :, :score.size(-1)], p=1, dim=-1)
 
         context = attention_aggregate(attention, score)
 
