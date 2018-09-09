@@ -59,36 +59,18 @@ class CopySumm(Seq2SeqSumm):
                          bidirectional,
                          n_layer,
                          dropout)
-        self._copy = _CopyLinear(n_hidden,
-                                 n_hidden,
-                                 2 * emb_dim,
-                                 None if language_model is None else language_model.get_output_dim() // 2)
-
         self._language_model = language_model
-        self._attn_wq_lm = None
-        self._attn_wm_lm = None
+
         if language_model is not None:
             if language_model.allow_encode:
                 self._attn_lm = nn.Parameter(torch.Tensor(self._language_model.get_output_dim(), n_hidden))
                 init.xavier_normal_(self._attn_lm)
 
-                self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
-                init.xavier_normal_(self._attn_wq_lm)
-
-                if language_model.attention == 'multi-head':
-                    self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
-                    init.xavier_normal_(self._attn_wm_lm)
-
-            if language_model.allow_decode:
-                self._dec_lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
-
-        self._decoder = CopyLSTMDecoder(self._copy,
-                                        self._attn_wq_lm,
-                                        self._attn_wm_lm,
+        self._decoder = CopyLSTMDecoder(language_model,
                                         self._embedding,
-                                        self._dec_lstm,
-                                        self._attn_wq,
-                                        self._projection)
+                                        n_hidden,
+                                        n_layer,
+                                        dropout)
 
     def forward(self, article, art_lens, abstract, extend_art, extend_vsize):
         attention, mask, init_dec_states, lm_attention, lm_mask = self.encode(article, art_lens)
@@ -107,7 +89,7 @@ class CopySumm(Seq2SeqSumm):
         mask = len_mask(art_lens, article.device).unsqueeze(-2)
 
         lm_mask, lm_logit, lm_attention = None, None, None
-        if self._language_model is not None and self._attn_lm is not None:
+        if self._language_model is not None and self._language_model.allow_encode:
             lm_output, lm_mask = self._language_model(article)
             lm_attention = torch.matmul(lm_output, self._attn_lm)
 
@@ -214,11 +196,27 @@ class CopySumm(Seq2SeqSumm):
 
 
 class CopyLSTMDecoder(AttentionalLSTMDecoder):
-    def __init__(self, copy, attn_wq_lm, attn_wm_lm, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._copy = copy
-        self._attn_wq_lm = attn_wq_lm
-        self._attn_wm_lm = attn_wm_lm
+    def __init__(self, language_model, embedding, n_hidden, n_layer, dropout):
+        super().__init__(embedding, n_hidden, n_layer, dropout)
+        emb_dim = embedding.embedding_dim
+        self._copy = _CopyLinear(n_hidden,
+                                 n_hidden,
+                                 2 * emb_dim,
+                                 None if language_model is None else language_model.get_output_dim() // 2)
+
+        self._attn_wq_lm = None
+        self._attn_wm_lm = None
+        if language_model is not None:
+            if language_model.allow_encode:
+                self._attn_wq_lm = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+                init.xavier_normal_(self._attn_wq_lm)
+
+                if language_model.attention == 'multi-head':
+                    self._attn_wm_lm = nn.Parameter(torch.Tensor(n_hidden * 2, n_hidden))
+                    init.xavier_normal_(self._attn_wm_lm)
+
+            if language_model.allow_decode:
+                self._lstm = language_model.get_forward_lstm_cells(n_layer, dropout=dropout)
 
     def _step(self, tok, states, attention):
         prev_states, prev_out = states
@@ -308,11 +306,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
         return k_tok, k_lp, (states, dec_out), score
 
     def _compute_gen_prob(self, dec_out, extend_vsize, eps=1e-6):
-        embedding_weight = self._embedding.weight.t()
-        if dec_out.device != embedding_weight.device:
-            embedding_weight = embedding_weight.to(dec_out.device)
-
-        logit = self._matmul(dec_out, embedding_weight)
+        logit = self._matmul(dec_out, self._embedding.weight.t())
         if len(logit.shape) == 3:
             logit = logit.squeeze(0)
         bsize, vsize = logit.size()
@@ -362,7 +356,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
                                                          lm_attention,
                                                          lm_mask,
                                                          return_raw_score=True)
-            score = F.softmax(raw_score + lm_raw_score, dim=-1)
+            score = F.softmax(raw_score + lm_raw_score[:, :raw_score.size(-1)], dim=-1)
 
         return extend_src, extend_vsize, context, score, lm_context
 
@@ -380,7 +374,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
             lm_score, _ = step_attention_score(lm_query,
                                                lm_attention,
                                                lm_mask)
-            score = F.normalize(score * lm_score, p=1, dim=-1)
+            score = F.normalize(score * lm_score[:, :score.size(-1)], p=1, dim=-1)
 
         context = attention_aggregate(attention, score)
 

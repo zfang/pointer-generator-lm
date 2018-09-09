@@ -10,12 +10,21 @@ from .util import sequence_mean, len_mask
 INIT = 1e-2
 
 
-class Seq2SeqEncoder(nn.Module):
-    def __init__(self, embedding, n_hidden, bidirectional, n_layer, dropout):
+class Seq2SeqSumm(nn.Module):
+    def __init__(self,
+                 vocab_size: int,
+                 emb_dim: int,
+                 n_hidden: int,
+                 bidirectional: bool,
+                 n_layer: int,
+                 dropout: float = 0.0):
         super().__init__()
-        self._embedding = embedding
+        # embedding weight parameter is shared between encoder, decoder,
+        # and used as final projection layer to vocab logit
+        # can initialize with pretrained word vectors
+        self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
         self._enc_lstm = nn.LSTM(
-            self._embedding.embedding_dim, n_hidden, n_layer,
+            emb_dim, n_hidden, n_layer,
             bidirectional=bidirectional, dropout=dropout
         )
         # initial encoder LSTM states are learned parameters
@@ -29,7 +38,24 @@ class Seq2SeqEncoder(nn.Module):
         init.uniform_(self._init_enc_h, -INIT, INIT)
         init.uniform_(self._init_enc_c, -INIT, INIT)
 
-    def forward(self, article, art_lens=None):
+        # project encoder final states to decoder initial states
+        enc_out_dim = n_hidden * (2 if bidirectional else 1)
+        self._dec_h = nn.Linear(enc_out_dim, n_hidden, bias=False)
+        self._dec_c = nn.Linear(enc_out_dim, n_hidden, bias=False)
+        # multiplicative attention
+        self._attn_wm = nn.Parameter(torch.Tensor(enc_out_dim, n_hidden))
+        init.xavier_normal_(self._attn_wm)
+        # functional object for easier usage
+        self._decoder = AttentionalLSTMDecoder(
+            self._embedding, n_hidden, n_layer, dropout
+        )
+
+    def forward(self, article: torch.Tensor, art_lens: torch.Tensor, abstract: torch.Tensor):
+        attention, init_dec_states = self.encode(article, art_lens)
+        mask = len_mask(art_lens, article.device).unsqueeze(-2)
+        return self._decoder((attention, mask), init_dec_states, abstract)
+
+    def encode(self, article: torch.Tensor, art_lens: torch.Tensor = None):
         size = (
             self._init_enc_h.size(0),
             len(art_lens) if art_lens is not None else 1,
@@ -43,74 +69,24 @@ class Seq2SeqEncoder(nn.Module):
             article, self._enc_lstm, art_lens,
             init_enc_states, self._embedding
         )
-
         if self._enc_lstm.bidirectional:
             h, c = final_states
             final_states = (
                 torch.cat(h.chunk(2, dim=0), dim=2),
                 torch.cat(c.chunk(2, dim=0), dim=2)
             )
-
-        return enc_art, final_states
-
-
-class Seq2SeqSumm(nn.Module):
-    def __init__(self, vocab_size, emb_dim,
-                 n_hidden, bidirectional, n_layer, dropout=0.0):
-        super().__init__()
-        # embedding weight parameter is shared between encoder, decoder,
-        # and used as final projection layer to vocab logit
-        # can initialize with pretrained word vectors
-        self._embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
-        self._encoder = Seq2SeqEncoder(self._embedding, n_hidden, bidirectional, n_layer, dropout)
-
-        # vanilla lstm / LNlstm
-        self._dec_lstm = MultiLayerLSTMCells(
-            2 * emb_dim, n_hidden, n_layer, dropout=dropout
-        )
-        # project encoder final states to decoder initial states
-        enc_out_dim = n_hidden * (2 if bidirectional else 1)
-        self._dec_h = nn.Linear(enc_out_dim, n_hidden, bias=False)
-        self._dec_c = nn.Linear(enc_out_dim, n_hidden, bias=False)
-        # multiplicative attention
-        self._attn_wq = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
-        self._attn_wm = nn.Parameter(torch.Tensor(enc_out_dim, n_hidden))
-        init.xavier_normal_(self._attn_wq)
-        init.xavier_normal_(self._attn_wm)
-
-        # project decoder output to emb_dim, then
-        # apply weight matrix from embedding layer
-        self._projection = nn.Sequential(
-            nn.Linear(2 * n_hidden, n_hidden),
-            nn.Tanh(),
-            nn.Linear(n_hidden, emb_dim, bias=False)
-        )
-
-        # functional object for easier usage
-        self._decoder = AttentionalLSTMDecoder(
-            self._embedding, self._dec_lstm,
-            self._attn_wq, self._projection
-        )
-
-    def forward(self, article, art_lens, abstract):
-        attention, init_dec_states = self.encode(article, art_lens)
-        mask = len_mask(art_lens, article.device).unsqueeze(-2)
-        return self._decoder((attention, mask), init_dec_states, abstract)
-
-    def encode(self, article, art_lens=None):
-        enc_art, final_states = self._encoder(article, art_lens)
         init_h = torch.stack([self._dec_h(s)
                               for s in final_states[0]], dim=0)
         init_c = torch.stack([self._dec_c(s)
                               for s in final_states[1]], dim=0)
         init_dec_states = (init_h, init_c)
         attention = torch.matmul(enc_art, self._attn_wm).transpose(0, 1)
-        init_attn_out = self._projection(torch.cat(
+        init_attn_out = self._decoder._projection(torch.cat(
             [init_h[-1], sequence_mean(attention, art_lens, dim=1)], dim=1
         ))
         return attention, (init_dec_states, init_attn_out)
 
-    def batch_decode(self, article, art_lens, go, eos, max_len):
+    def batch_decode(self, article: torch.Tensor, art_lens: torch.Tensor, go: int, eos: int, max_len: int):
         """ greedy decode support batching"""
         batch_size = len(art_lens)
         attention, init_dec_states = self.encode(article, art_lens)
@@ -127,7 +103,7 @@ class Seq2SeqSumm(nn.Module):
             attns.append(attn_score)
         return outputs, attns
 
-    def decode(self, article, go, eos, max_len):
+    def decode(self, article: torch.Tensor, go: int, eos: int, max_len: int):
         attention, init_dec_states = self.encode(article)
         attention = (attention, None)
         tok = torch.LongTensor([go]).to(article.device)
@@ -143,21 +119,31 @@ class Seq2SeqSumm(nn.Module):
             attns.append(attn_score.squeeze(0))
         return outputs, attns
 
-    def set_embedding(self, embedding):
+    def set_embedding(self, embedding: nn.Parameter):
         """embedding is the weight matrix"""
         assert self._embedding.weight.size() == embedding.size()
         self._embedding.weight.data.copy_(embedding)
 
 
 class AttentionalLSTMDecoder(nn.Module):
-    def __init__(self, embedding, lstm, attn_w, projection):
+    def __init__(self, embedding: nn.Embedding, n_hidden: int, n_layer: int, dropout: float):
         super().__init__()
+        emb_dim = embedding.embedding_dim
         self._embedding = embedding
-        self._lstm = lstm
-        self._attn_w = attn_w
-        self._projection = projection
+        self._lstm = MultiLayerLSTMCells(
+            2 * emb_dim, n_hidden, n_layer, dropout=dropout
+        )
+        self._attn_w = nn.Parameter(torch.Tensor(n_hidden, n_hidden))
+        init.xavier_normal_(self._attn_w)
+        # project decoder output to emb_dim, then
+        # apply weight matrix from embedding layer
+        self._projection = nn.Sequential(
+            nn.Linear(2 * n_hidden, n_hidden),
+            nn.Tanh(),
+            nn.Linear(n_hidden, emb_dim, bias=False)
+        )
 
-    def forward(self, attention, init_states, target):
+    def forward(self, attention: tuple, init_states: tuple, target: torch.Tensor):
         max_len = target.size(1)
         states = init_states
         logits = []
@@ -168,7 +154,7 @@ class AttentionalLSTMDecoder(nn.Module):
         logit = torch.stack(logits, dim=1)
         return logit
 
-    def _step(self, tok, states, attention):
+    def _step(self, tok: torch.Tensor, states: tuple, attention: tuple):
         prev_states, prev_out = states
         lstm_in = torch.cat(
             [self._embedding(tok).squeeze(1), prev_out],
@@ -185,7 +171,7 @@ class AttentionalLSTMDecoder(nn.Module):
         logit = torch.mm(dec_out, self._embedding.weight.t())
         return logit, states, score
 
-    def decode_step(self, tok, states, attention):
+    def decode_step(self, tok: torch.Tensor, states: tuple, attention: tuple):
         logit, states, score = self._step(tok, states, attention)
         out = torch.max(logit, dim=1, keepdim=True)[1]
         return out, states, score
