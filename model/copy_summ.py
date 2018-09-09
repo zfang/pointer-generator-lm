@@ -252,7 +252,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
                 dim=1,
-                index=extend_src.expand_as(score),
+                index=extend_src[:, :score.size(-1)],
                 source=score * copy_prob
             ) + 1e-8)  # numerical stability for log
         return lp, (states, dec_out), score
@@ -299,7 +299,7 @@ class CopyLSTMDecoder(AttentionalLSTMDecoder):
             ((-copy_prob + 1) * gen_prob
              ).scatter_add(
                 dim=1,
-                index=extend_src.expand_as(score).contiguous().view(
+                index=extend_src[:, :score.size(-1)].contiguous().view(
                     beam * batch, -1),
                 source=score.contiguous().view(beam * batch, -1) * copy_prob
             ) + 1e-8).contiguous().view(beam, batch, -1)
