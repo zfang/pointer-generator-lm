@@ -1,7 +1,6 @@
 """ beam-search utilities"""
-from collections import Counter
-
 import torch
+from collections import Counter
 from cytoolz import concat
 
 
@@ -47,11 +46,17 @@ def create_beam(tok, lp, hists):
 def pack_beam(hyps, device):
     """pack a list of hypothesis to decoder input batches"""
     token = torch.LongTensor([h.sequence[-1] for h in hyps])
-
-    hists = tuple(torch.stack([hyp.hists[i] for hyp in hyps], dim=d)
-                  for i, d in enumerate([1, 1, 0]))
     token = token.to(device)
-    states = ((hists[0], hists[1]), hists[2])
+
+    if len(hyps[0].hists) == 3:
+        hists = tuple(torch.stack([hyp.hists[i] for hyp in hyps], dim=d)
+                      for i, d in enumerate([1, 1, 0]))
+        states = ((hists[0], hists[1]), hists[2])
+    else:
+        hists = tuple(torch.stack([hyp.hists[i] for hyp in hyps], dim=d)
+                      for i, d in enumerate([1, 1]))
+        states = (hists[0], hists[1])
+
     return token, states
 
 
@@ -90,8 +95,12 @@ def _unpack_topk(topk, lp, hists, attn=None):
     beam, _ = topk.size()
     topks = [t for t in topk]
     lps = [l for l in lp]
-    k_hists = [(hists[0][:, i, :], hists[1][:, i, :], hists[2][i, :])
-               for i in range(beam)]
+    if len(hists) == 3:
+        k_hists = [(hists[0][:, i, :], hists[1][:, i, :], hists[2][i, :])
+                   for i in range(beam)]
+    else:
+        k_hists = [(hists[0][:, i, :], hists[1][:, i, :][i, :])
+                   for i in range(beam)]
 
     if attn is None:
         return topks, lps, k_hists
@@ -104,7 +113,7 @@ def _clean_beam(finished, beam, end_tok, beam_size, remove_tri=True):
     """ remove completed sequence from beam """
     new_beam = []
     for h in sorted(beam, reverse=True,
-                    key=lambda h: h.logprob / len(h.sequence)):
+                    key=lambda x: x.logprob / len(x.sequence)):
         if remove_tri and _has_repeat_tri(h.sequence):
             h.logprob = -1e9
         if h.sequence[-1] == end_tok:

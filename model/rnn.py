@@ -67,7 +67,7 @@ class StackedLSTMCells(nn.Module):
         """
         Arguments:
             input_: FloatTensor (batch, input_size)
-            states: tuple of the H, C LSTM states
+            state: tuple of the H, C LSTM states
                 FloatTensor (num_layers, batch, hidden_size)
         Returns:
             LSTM states

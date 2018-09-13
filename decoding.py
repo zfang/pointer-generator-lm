@@ -15,6 +15,7 @@ from torch.nn import DataParallel
 from data.batcher import convert2id, pad_batch_tensorize
 from data.data import CnnDmDataset
 from model.copy_summ import CopySumm
+from model.pointer_generator import PointerGenerator
 from utils import PAD, UNK, START, END, get_elmo_lm
 
 
@@ -66,7 +67,6 @@ def load_last_ckpt(model_dir):
 class Abstractor(object):
     def __init__(self, abs_dir, max_len=30, cuda=True, restore_last_model=False):
         abs_meta = json.load(open(join(abs_dir, 'meta.json')))
-        assert abs_meta['net'] == 'base_abstractor'
         abs_args = abs_meta['net_args']
         if restore_last_model:
             abs_ckpt, ckpt_name = load_last_ckpt(abs_dir)
@@ -85,7 +85,14 @@ class Abstractor(object):
             else:
                 raise NotImplementedError(language_model_arg)
 
-        abstractor = CopySumm(**abs_args, language_model=language_model)
+        if abs_meta['net'] == 'copy_summ':
+            model = CopySumm
+        elif abs_meta['net'] == 'pointer_generator':
+            model = PointerGenerator
+        else:
+            raise NotImplementedError(abs_meta['net'])
+
+        abstractor = model(**abs_args, language_model=language_model)
         if abs_meta['parallel']:
             abstractor = DataParallel(abstractor)
 

@@ -20,6 +20,7 @@ from data.batcher import convert_batch_copy, batchify_fn_copy
 from data.data import CnnDmDataset
 from decoding import Abstractor
 from model.copy_summ import CopySumm
+from model.pointer_generator import PointerGenerator
 from model.util import sequence_loss
 from training import BasicPipeline, BasicTrainer
 from training import get_basic_grad_fn, basic_validate
@@ -121,7 +122,10 @@ def main(args):
     # make net
     step = 0
     if args.restore_model is not None:
-        abstractor = Abstractor(args.path, args.max_abs, args.cuda, restore_last_model=args.restore_model == 'last')
+        abstractor = Abstractor(args.path,
+                                args.max_abs,
+                                args.cuda,
+                                restore_last_model=args.restore_model == 'last')
         word2id = abstractor._word2id
         meta = abstractor._abs_meta
         net = abstractor._net
@@ -156,10 +160,17 @@ def main(args):
             language_model = get_elmo_lm(vocab_to_cache=[id2words[i] for i in range(len(id2words))],
                                          args=language_model_args)
 
-        net = CopySumm(**net_args, language_model=language_model)
+        if args.model == 'copy_summ':
+            model = CopySumm
+        elif args.model == 'pointer_generator':
+            model = PointerGenerator
+        else:
+            raise NotImplementedError(args.model)
+
+        net = model(**net_args, language_model=language_model)
 
         meta = {
-            'net': 'base_abstractor',
+            'net': args.model,
             'net_args': net_args,
             'training_params': train_params,
             'language_model': language_model_args,
@@ -286,6 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', choices=('adam', 'adagrad'), default='adam')
     parser.add_argument('--lm-attention', choices=('multi-head', 'modulation'), default='multi-head')
     parser.add_argument('--parallel', action='store_true')
+    parser.add_argument('--model', choices=('copy_summ', 'pointer_generator'), default='copy_summ')
     args = parser.parse_args()
     args.bi = not args.no_bi
     args.cuda = torch.cuda.is_available() and not args.no_cuda

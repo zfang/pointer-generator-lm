@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader
 from data.batcher import tokenize
 from data.data import CnnDmDataset
 from decoding import Abstractor, BeamAbstractor, make_html_safe
+from model.copy_summ import CopySumm
+from model.pointer_generator import PointerGenerator
 from utils import rerank_mp, count_parameters
 
 try:
@@ -54,6 +56,13 @@ def decode(save_path, model_dir, split, batch_size,
     # setup model
     with open(join(model_dir, 'meta.json')) as f:
         meta = json.loads(f.read())
+
+    if args.model == 'copy_summ':
+        model = CopySumm
+    elif args.model == 'pointer_generator':
+        model = PointerGenerator
+    else:
+        raise NotImplementedError(args.model)
 
     if beam_size == 1:
         abstractor = Abstractor(model_dir,
@@ -147,6 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-cuda', action='store_true',
                         help='disable GPU training')
     parser.add_argument('--use-matched', action='store_true')
+    parser.add_argument('--model', choices=('copy_summ', 'pointer_generator'), default='copy_summ')
     args = parser.parse_args()
     args.cuda = torch.cuda.is_available() and not args.no_cuda
 

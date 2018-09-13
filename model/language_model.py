@@ -18,6 +18,9 @@ class LanguageModel(torch.nn.Module):
         self._allow_encode = allow_encode
         self._allow_decode = allow_decode
 
+    def forward(self, *input_):
+        raise NotImplementedError
+
     @property
     def attention(self):
         return self._attention
