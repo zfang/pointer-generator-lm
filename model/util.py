@@ -77,3 +77,10 @@ def reorder_lstm_states(lstm_states, order):
                      lstm_states[1].index_select(index=order, dim=1))
 
     return sorted_states
+
+
+def get_net_attr(net: torch.nn.Module, attr: str):
+    if isinstance(net, torch.nn.DataParallel):
+        return getattr(net.module, attr)
+    else:
+        return getattr(net, attr)

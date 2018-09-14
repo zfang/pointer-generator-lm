@@ -16,6 +16,7 @@ from data.batcher import convert2id, pad_batch_tensorize
 from data.data import CnnDmDataset
 from model.copy_summ import CopySumm
 from model.pointer_generator import PointerGenerator
+from model.util import get_net_attr
 from utils import PAD, UNK, START, END, get_elmo_lm
 
 
@@ -114,7 +115,7 @@ class Abstractor(object):
                     ext_word2id[w] = len(ext_word2id)
                     ext_id2word[len(ext_id2word)] = w
         articles = convert2id(UNK, self._word2id, raw_article_sents)
-        art_lens = [len(art) for art in articles]
+        art_lens = torch.LongTensor([len(art) for art in articles]).to(self._device)
         article = pad_batch_tensorize(articles, PAD, cuda=False
                                       ).to(self._device)
         extend_arts = convert2id(UNK, ext_word2id, raw_article_sents)
@@ -128,7 +129,8 @@ class Abstractor(object):
     def __call__(self, raw_article_sents, debug=False):
         self._net.eval()
         dec_args, id2word = self._prepro(raw_article_sents)
-        decs, attns = self._net.batch_decode(*dec_args)
+        batch_decode = get_net_attr(self._net, 'batch_decode')
+        decs, attns = batch_decode(*dec_args)
 
         def argmax(arr, keys):
             return arr[max(range(len(arr)), key=lambda i: keys[i].item())]
@@ -157,7 +159,8 @@ class BeamAbstractor(Abstractor):
         self._net.eval()
         dec_args, id2word = self._prepro(raw_article_sents)
         dec_args = (*dec_args, beam_size, diverse)
-        all_beams = self._net.batched_beamsearch(*dec_args)
+        batched_beamsearch = get_net_attr(self._net, 'batched_beamsearch')
+        all_beams = batched_beamsearch(*dec_args)
         all_beams = list(starmap(_process_beam(id2word),
                                  zip(all_beams, raw_article_sents)))
         return all_beams
