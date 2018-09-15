@@ -99,7 +99,7 @@ def _unpack_topk(topk, lp, hists, attn=None):
         k_hists = [(hists[0][:, i, :], hists[1][:, i, :], hists[2][i, :])
                    for i in range(beam)]
     else:
-        k_hists = [(hists[0][:, i, :], hists[1][:, i, :][i, :])
+        k_hists = [(hists[0][:, i, :], hists[1][:, i, :])
                    for i in range(beam)]
 
     if attn is None:

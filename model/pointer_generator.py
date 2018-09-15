@@ -142,8 +142,8 @@ class PointerGenerator(nn.Module):
                 toks.append(token)
                 all_states.append(states)
             token = torch.stack(toks, dim=1)
-            states = (torch.stack([h for (h, _), _ in all_states], dim=2),
-                      torch.stack([c for (_, c), _ in all_states], dim=2))
+            states = (torch.stack([h for h, _ in all_states], dim=2),
+                      torch.stack([c for _, c in all_states], dim=2))
             token.masked_fill_(token >= vsize, unk)
 
             topk, lp, states, attn_score = self._decoder.topk_step(
@@ -157,7 +157,7 @@ class PointerGenerator(nn.Module):
                 finished, new_beam = bs.next_search_beam(
                     beam, beam_size, finished, eos,
                     topk[:, batch_i, :], lp[:, batch_i, :],
-                    (states[0][0][:, :, batch_i, :], states[0][1][:, :, batch_i, :]),
+                    (states[0][:, :, batch_i, :], states[1][:, :, batch_i, :]),
                     attn_score[:, batch_i, :],
                     diverse
                 )
@@ -386,7 +386,7 @@ class _Decoder(nn.Module):
             (p_gen * p_vocab
              ).scatter_add(
                 dim=1,
-                index=extend_src[:, :score.size(-1)].contiguous().view(
+                index=extend_src[:, :score.size(-1)].expand_as(score).contiguous().view(
                     beam * batch, -1),
                 source=score.contiguous().view(beam * batch, -1) * (1 - p_gen)
             ) + 1e-8).contiguous().view(beam, batch, -1)
