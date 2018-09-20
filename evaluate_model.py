@@ -23,12 +23,12 @@ def main(args):
     if args.rouge:
         dec_pattern = r'(\d+).dec'
         ref_pattern = '#ID#.ref'
-        output = eval_rouge(dec_pattern, dec_dir, ref_pattern, ref_dir, force=args.force)
+        output = eval_rouge(dec_pattern, dec_dir, ref_pattern, ref_dir)
         metric = 'rouge'
     elif args.meteor:
         dec_pattern = '[0-9]+.dec'
         ref_pattern = '[0-9]+.ref'
-        output = eval_meteor(dec_pattern, dec_dir, ref_pattern, ref_dir, force=args.force)
+        output = eval_meteor(dec_pattern, dec_dir, ref_pattern, ref_dir)
         metric = 'meteor'
     elif args.novel_ngrams:
         eval_novel_ngrams_args = {
