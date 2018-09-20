@@ -57,13 +57,6 @@ def decode(save_path, model_dir, split, batch_size,
     with open(join(model_dir, 'meta.json')) as f:
         meta = json.loads(f.read())
 
-    if args.model == 'copy_summ':
-        model = CopySumm
-    elif args.model == 'pointer_generator':
-        model = PointerGenerator
-    else:
-        raise NotImplementedError(args.model)
-
     if beam_size == 1:
         abstractor = Abstractor(model_dir,
                                 max_len,
