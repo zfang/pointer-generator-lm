@@ -67,7 +67,6 @@ if __name__ == '__main__':
                         help='directory of decoded summaries')
     parser.add_argument('--ref_dir', action='store',
                         help='directory of reference summaries')
-    parser.add_argument('-f', '--force', action='store_true')
 
     args = parser.parse_args()
     main(args)

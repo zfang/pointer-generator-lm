@@ -23,26 +23,23 @@ except KeyError:
 
 
 def eval_rouge(dec_pattern, dec_dir, ref_pattern, ref_dir,
-               cmd='-c 95 -r 1000 -n 2 -m', system_id=1, force=False):
+               cmd='-c 95 -r 1000 -n 2 -m', system_id=1):
     """ evaluate by original Perl implementation"""
     assert _ROUGE_PATH is not None
     # silence pyrouge logging
     log.get_global_console_logger().setLevel(logging.WARNING)
     rouge_dec = join(dec_dir, '../rouge_dec')
-    if not os.path.exists(rouge_dec) or force:
-        Rouge155.convert_summaries_to_rouge_format(
-            dec_dir, rouge_dec)
+    Rouge155.convert_summaries_to_rouge_format(
+        dec_dir, rouge_dec)
     rouge_ref = join(ref_dir, '../rouge_{}_ref'.format(basename(normpath(ref_dir))))
-    if not os.path.exists(rouge_ref) or force:
-        Rouge155.convert_summaries_to_rouge_format(
-            ref_dir, rouge_ref)
+    Rouge155.convert_summaries_to_rouge_format(
+        ref_dir, rouge_ref)
     rouge_settings = join(dec_dir, '../rouge_settings.xml')
-    if not os.path.exists(rouge_settings) or force:
-        Rouge155.write_config_static(
-            rouge_dec, dec_pattern,
-            rouge_ref, ref_pattern,
-            rouge_settings, system_id
-        )
+    Rouge155.write_config_static(
+        rouge_dec, dec_pattern,
+        rouge_ref, ref_pattern,
+        rouge_settings, system_id
+    )
     cmd = (join(_ROUGE_PATH, 'ROUGE-1.5.5.pl')
            + ' -e {} '.format(join(_ROUGE_PATH, 'data'))
            + cmd
@@ -58,7 +55,7 @@ except KeyError:
     _METEOR_PATH = None
 
 
-def eval_meteor(dec_pattern, dec_dir, ref_pattern, ref_dir, force=False):
+def eval_meteor(dec_pattern, dec_dir, ref_pattern, ref_dir):
     """ METEOR evaluation"""
     assert _METEOR_PATH is not None
     ref_matcher = re.compile(ref_pattern)
@@ -74,14 +71,12 @@ def eval_meteor(dec_pattern, dec_dir, ref_pattern, ref_dir, force=False):
             return ' '.join(f.read().split())
 
     meteor_dec = join(dec_dir, '../meteor_dec.txt')
-    if not os.path.exists(meteor_dec) or force:
-        with open(meteor_dec, 'w') as dec_f:
-            dec_f.write('\n'.join(map(read_file(dec_dir), decs)) + '\n')
+    with open(meteor_dec, 'w') as dec_f:
+        dec_f.write('\n'.join(map(read_file(dec_dir), decs)) + '\n')
 
     meteor_ref = join(ref_dir, '../meteor_{}_ref.txt'.format(basename(normpath(ref_dir))))
-    if not os.path.exists(meteor_ref) or force:
-        with open(meteor_ref, 'w') as ref_f:
-            ref_f.write('\n'.join(map(read_file(ref_dir), refs)) + '\n')
+    with open(meteor_ref, 'w') as ref_f:
+        ref_f.write('\n'.join(map(read_file(ref_dir), refs)) + '\n')
 
     cmd = 'java -Xmx2G -jar {} {} {} -l en -norm'.format(
         _METEOR_PATH, meteor_dec, meteor_ref)
